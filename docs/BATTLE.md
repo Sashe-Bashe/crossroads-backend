@@ -89,8 +89,9 @@ after discussion. See the [conversation guide](CONVERSATION.md); the marketplace
 does not generate fictional dialogue to fill the viewer.
 The observer does not generate offers. Keep terminal windows open at completion
 if capturing them in OBS. Follow [OBS_BATTLE.md](OBS_BATTLE.md) to create the live
-two-window preview through OBS MCP. Streaming and recording are separate actions
-and are never started by these scripts.
+two-window preview through OBS MCP. Recording starts only with the operator's
+explicit `start-recording` command; setup and viewers never start it. Streaming
+is never started by these scripts.
 
 ## 3. Connect each participant's own agent
 
@@ -100,36 +101,139 @@ Do not distribute the combined operator configuration to either counterparty.
 Any model/runtime capable of invoking CLI commands can negotiate. Vision requires
 opening or attaching the files returned by `market products images read`.
 
-For a trusted local demonstration, an optional launcher supports an already
-configured Codex CLI. Run one process per role in separate operator terminals:
+### Optional isolated Codex example
+
+`scripts/container_participant.py` runs one real Codex process per participant
+inside separate Docker containers. This is an optional example for an operator
+with an existing Codex sign-in. The marketplace remains provider-neutral;
+participants can replace it with their own LLM, agent framework and tools.
+The example never creates a provider account or requests credentials in chat.
+
+From `backend`, first build the participant image. You need Docker, `uv`, the
+sibling `cli` checkout and an installed Linux x86-64 Codex CLI. The build copies
+the installed static Codex binary, its code-mode helper, `rg`, a CLI wheel and
+the CLI's locked production dependencies into a small temporary build context.
+It does not copy the repository, home directory or credentials into the image.
 
 ```bash
-uv run python scripts/battle_participant.py \
-  --config work/battle/config.json --role buyer
-
-uv run python scripts/battle_participant.py \
-  --config work/battle/config.json --role seller
+uv run python scripts/container_participant.py --build-image
 ```
 
-The launcher reads the operator configuration, gives each child a profile with
-only its own credential, and stores raw transcripts privately. `--model` is an
-optional participant-selected model; the launcher does not manage provider
-accounts. It uses the existing runtime sign-in. Separate working directories
-and prompts are not an OS security boundary: this same-user example is for
-trusted local agents. Independent counterparties should run in their own
-machines/containers with only their own credential mounted.
+This creates `crossroads-participant:local` using `python:3.14-slim`. The image
+contains a frozen copy of the CLI and Codex binaries: **rebuild it after changing
+the CLI or updating Codex**. It uses the installed runtime, not an automatically
+selected latest version. For a custom installation, set `--cli-dir` and
+`--codex-vendor`; the latter must contain `bin/codex`,
+`bin/codex-code-mode-host` and `codex-path/rg`. `--image` can select a different
+tag for both build and launch.
 
-The launcher defaults to Codex's `workspace-write` sandbox. On a trusted local
-machine where nested Linux user namespaces are unavailable (for example,
-`bwrap: setting up uid map: Permission denied`), an operator may explicitly add
-`--sandbox danger-full-access` to use ordinary host execution. This grants the
-runtime the host user's shell/file permissions; marketplace API permissions
-still apply. It is not suitable for an untrusted participant on a shared host.
+The local Compose services must be running on `crossroads_default`. The
+containers intentionally use `http://api:8100`, where `api` is the Compose
+service's Docker DNS name. A host URL such as `http://127.0.0.1:8100` in the
+operator configuration is not used inside the participant: container loopback
+does not point to the host. If the Compose project has a different network name,
+pass `--network YOUR_PROJECT_default`; that network must still resolve `api`
+on port 8100. This launcher is a local Compose example, not a generic remote API
+launcher. Normal outbound networking remains available for the model provider.
 
-The example refuses to overwrite an existing participant directory. After an
-interruption, first inspect the authoritative room and the private participant
-logs. Never launch a second actor on the same role while the first is running.
-For normal integration, use your own agent session and resume from CLI context.
+Run both readiness checks before starting models or recording:
+
+```bash
+uv run python scripts/container_participant.py \
+  --config work/battle/config.json --role buyer --check
+
+uv run python scripts/container_participant.py \
+  --config work/battle/config.json --role seller --check
+```
+
+`--check` does not call a model or submit marketplace actions. It checks saved
+Codex login status, API health, the selected buyer/seller agent identity, the
+absence of human approval permission, room access and a real image download
+through the authenticated API content endpoint. It also verifies nonroot
+execution and writable ephemeral runtime state. Downloads are checksum-verified
+by the CLI. A successful check prints only safe readiness metadata, including
+the image count. Login status confirms a saved sign-in; it does not test provider
+quota or model availability. The temporary check container is removed afterward.
+
+After starting the public monitor and, if wanted, OBS recording, run these in
+two operator terminals. These commands **do start real model sessions**:
+
+```bash
+uv run python scripts/container_participant.py \
+  --config work/battle/config.json --role buyer \
+  --model gpt-6-astra --timeout 900
+
+uv run python scripts/container_participant.py \
+  --config work/battle/config.json --role seller \
+  --model gpt-6-astra --timeout 900
+```
+
+Choose a model available to the participant's account using `--model`; this
+example defaults to `gpt-6-astra`. Each Codex process uses `--ignore-user-config`,
+`--ignore-rules` and `--ephemeral`, so host model settings, plugins and session
+history are not imported. Both processes receive the commercial instructions
+from `scripts/battle_participant.py`, then make their own decisions from actual
+CLI context, owner briefs, messages and downloaded photographs.
+
+Each container runs as the launching host user's nonroot UID/GID, with a
+read-only root filesystem, all Linux capabilities dropped, no-new-privileges,
+bounded process/memory/CPU resources and ephemeral home/runtime directories.
+Codex's `danger-full-access` mode applies **inside this Docker boundary**; no
+model-generated command runs directly on the host. The only host mounts are the
+role's writable workspace, its read-only marketplace profile and its read-only
+Codex auth snapshot. There is no Docker socket, host home, backend source,
+combined operator configuration or opposite party's credential mount.
+
+For a configuration whose `run_dir` is `work/battle/run`, private artifacts live
+under `work/battle/participants/buyer/` and `seller/`:
+
+| Artifact | Purpose |
+| --- | --- |
+| `workspace/` | The only writable host directory mounted into that role's container; actions and downloaded images live here |
+| `market-profile.json` | Only that role's agent token, workspace ID and internal API URL; mounted read-only |
+| `codex-auth.json` | A private snapshot of the participant's saved runtime sign-in; mounted read-only |
+| `agent.jsonl`, `agent.stderr` | Raw model events and diagnostics, outside the mounted workspace and never sent to the public viewers |
+| `process.json` | Docker container ID/name, launcher/attachment PIDs, role, room and selected model |
+
+Directories require mode `700`; credentials and raw logs use mode `600`. Keep
+the entire `work/` tree private and out of Git. Raw transcripts can contain
+private context and model notes; record the public battle viewers, not these
+files. The default auth source is `$CODEX_HOME/auth.json`, falling back to
+`~/.codex/auth.json`. Use `--auth-file /private/path/auth.json` when the
+participant supplies a different saved sign-in. Existing snapshots are retained;
+they are not refreshed from the host or written back by the container. After a
+sign-in changes or expires, prepare a fresh private session and repeat the checks.
+
+Public launcher stdout is JSONL containing only lifecycle metadata.
+`container_started` includes the actual container ID and Docker's observed
+`started_at`; `container_exited` includes the exit status. `--timeout` is a
+30–3600 second wall-clock bound, defaulting to 900. Interrupting or terminating
+the launcher stops and removes its container; timeout/interruption exits with
+status 124. A forced host kill or Docker failure can prevent cleanup: inspect
+the recorded container ID before restarting and stop that exact container if
+it is still running.
+
+The default agent stops when the room reaches approval, human review, decline,
+expiry, cancellation or an order. Add `--wait-for-guidance` to keep it watching
+through approval/review/decline/expiry until a human reopens the room or the same
+wall-clock limit expires. Ordered and cancelled rooms always stop. This flag
+does not reset action budgets, approve a deal or start another model; dashboard
+**Negotiate more** only queues a private instruction. For a continuing public
+feed, also pass `--wait-for-guidance` to the CLI battle monitor.
+
+Repeated checks are allowed, but the launcher refuses a second model session
+once a role's `process.json` exists. After an interruption, inspect the current
+room and private logs, confirm the old process/container is stopped, and use a
+fresh private session directory. Point the new operator configuration at that
+directory's `run` path while retaining the intended room and scoped identities;
+this does not reset the marketplace. Never run two actors for the same role in
+the same room concurrently.
+
+The older `scripts/battle_participant.py` host launcher remains available for
+trusted local integrations using Codex's `workspace-write` sandbox. Use the
+container example when host Linux user namespaces are unavailable or when both
+participants share an operator's machine. Separate directories and prompts
+alone are not a host security boundary.
 
 ## 4. Review the result
 

@@ -10,7 +10,8 @@
 Run with ``uv run scripts/obs_battle.py --help``. OBS must already be running
 with its authenticated WebSocket enabled. On Linux/Wayland, launch OBS with
 ``QT_QPA_PLATFORM=xcb obs`` and the terminals with ``GDK_BACKEND=x11`` to use
-per-window XComposite capture. This operator never streams or records.
+per-window XComposite capture. Recording requires explicit start-recording and
+stop-recording commands. This operator never starts a stream.
 """
 
 from __future__ import annotations
@@ -23,10 +24,18 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+if TYPE_CHECKING:
+    from mcp import ClientSession
+
+RECORDINGS_ROOT = Path(__file__).resolve().parents[1] / "work" / "recorded-demo"
+RECORDING_JOURNAL = ".obs-recording.json"
+START_STATUS_ATTEMPTS = 20
+START_STATUS_INTERVAL = 0.5
 
 
 def connection_environment() -> dict[str, str]:
@@ -35,11 +44,16 @@ def connection_environment() -> dict[str, str]:
     config_root = Path(environment.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     config_root /= "obs-studio"
     config = configparser.ConfigParser(interpolation=None)
-    config.read(config_root / "global.ini")
-    settings: dict = {}
-    modern_config = config_root / "plugin_config/obs-websocket/config.json"
-    if modern_config.exists():
-        settings = json.loads(modern_config.read_text())
+    try:
+        config.read(config_root / "global.ini")
+        settings: dict = {}
+        modern_config = config_root / "plugin_config/obs-websocket/config.json"
+        if modern_config.exists():
+            settings = json.loads(modern_config.read_text())
+            if not isinstance(settings, dict):
+                raise ValueError("Invalid OBS configuration")
+    except (configparser.Error, OSError, ValueError):
+        raise ValueError("OBS configuration could not be read; check the local OBS settings.") from None
     environment.setdefault("OBS_HOST", "127.0.0.1")
     environment.setdefault(
         "OBS_PORT",
@@ -55,17 +69,27 @@ def connection_environment() -> dict[str, str]:
 
 
 async def call(session: ClientSession, name: str, **arguments) -> dict:
-    response = await session.call_tool(name, arguments)
+    try:
+        response = await session.call_tool(name, arguments)
+    except Exception:
+        raise RuntimeError(f"OBS MCP tool {name} could not complete; check the OBS connection.") from None
     if response.isError:
         # Avoid echoing credentials or arbitrary source settings in failures.
         raise RuntimeError(f"OBS MCP tool {name} failed; check the source names and OBS configuration.")
     for content in response.content:
         if content.type == "text":
-            return json.loads(content.text)
+            try:
+                result = json.loads(content.text)
+                if isinstance(result, dict):
+                    return result
+            except (ValueError, TypeError):
+                pass
+            raise RuntimeError(f"OBS MCP tool {name} returned an invalid JSON result.")
     raise RuntimeError(f"OBS MCP tool {name} returned no JSON result.")
 
 
 async def setup(session: ClientSession, args: argparse.Namespace) -> dict:
+    await require_idle(session)
     kinds = (await call(session, "get_input_kind_list"))["inputKinds"]
     if "xcomposite_input" not in kinds:
         raise RuntimeError(
@@ -156,8 +180,8 @@ async def setup(session: ClientSession, args: argparse.Namespace) -> dict:
         )
         await position(item, x, y)
 
-    await text("Title", "CROSSROADS  /  CHAIR PRICE BATTLE", 42, 140, 25, bold=True)
-    await text("Subtitle", "8 chairs  ·  Two independent agents  ·  Real CLI offers", 24, 142, 76)
+    await text("Title", "CROSSROADS  /  AGENT NEGOTIATION", 42, 140, 25, bold=True)
+    await text("Subtitle", "Two independent agents  ·  Real dialogue, tradeoffs and offers", 24, 142, 76)
     await text(
         "Footer",
         "LIVE VIEW  ·  Agreement pauses for buyer + seller human approval",
@@ -175,7 +199,203 @@ async def setup(session: ClientSession, args: argparse.Namespace) -> dict:
     return {"scene": args.scene, "terminals": captures, "canvas": [width, height]}
 
 
+async def require_idle(session: ClientSession) -> None:
+    if (await call(session, "get_record_status"))["outputActive"]:
+        raise RuntimeError(
+            "OBS is already recording. Leave that recording untouched; stop it with its owner first."
+        )
+    if (await call(session, "get_stream_status"))["outputActive"]:
+        raise RuntimeError("OBS is streaming. This helper will not alter an active stream.")
+
+
+def recording_directory(requested: Path | None) -> Path:
+    root = RECORDINGS_ROOT.resolve()
+    target = (requested or root / datetime.now(UTC).strftime("%Y%m%dT%H%M%S-%fZ")).expanduser().resolve()
+    if target == root or not target.is_relative_to(root):
+        raise ValueError(
+            "Recording directories must be a dedicated subdirectory of backend/work/recorded-demo."
+        )
+    return target
+
+
+def write_recording_journal(directory: Path, state: dict, *, create: bool = False) -> None:
+    target = directory / RECORDING_JOURNAL
+    if create:
+        output = os.fdopen(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w")
+    else:
+        output = tempfile.NamedTemporaryFile(mode="w", dir=directory, prefix=".obs-journal-", delete=False)
+    with output:
+        json.dump(state, output, indent=2)
+        output.write("\n")
+        output.flush()
+        os.fsync(output.fileno())
+    if not create:
+        os.replace(output.name, target)
+
+
+async def restore_record_directory(session: ClientSession, directory: Path, state: dict) -> bool:
+    """Do not alter a replacement recording or another operator's settings."""
+    try:
+        if (await call(session, "get_record_status"))["outputActive"]:
+            return False
+        current = (await call(session, "get_record_directory"))["recordDirectory"]
+        if Path(current).resolve() == Path(state["previous_directory"]).expanduser().resolve():
+            return True
+        if Path(current).resolve() != directory:
+            return False
+        await call(session, "set_record_directory", path=state["previous_directory"])
+        return True
+    except RuntimeError:
+        return False
+
+
+async def start_recording(session: ClientSession, args: argparse.Namespace) -> dict:
+    """An explicit operator action; never join or replace an existing output."""
+    await require_idle(session)
+    scenes = await call(session, "get_scene_list")
+    if scenes["currentProgramSceneName"] != args.scene:
+        raise RuntimeError("Select the requested Crossroads scene with setup before starting the recording.")
+    directory = recording_directory(args.record_dir)
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if (directory / RECORDING_JOURNAL).exists():
+        raise ValueError(
+            "This directory already has a recording journal; choose a new timestamped directory."
+        )
+    previous = (await call(session, "get_record_directory"))["recordDirectory"]
+    state = {
+        "version": 1,
+        "state": "prepared",
+        "scene": args.scene,
+        "record_directory": str(directory),
+        "previous_directory": previous,
+        "started_at": datetime.now(UTC).isoformat(),
+        "output_path": None,
+    }
+    write_recording_journal(directory, state, create=True)
+    start_dispatched = False
+    try:
+        await call(session, "set_record_directory", path=str(directory))
+        # Recheck before the explicit start in case another operator acted.
+        if (await call(session, "get_record_status"))["outputActive"]:
+            raise RuntimeError("OBS started recording concurrently; no start command was sent.")
+        state["state"] = "start_requested"
+        state["started_at"] = datetime.now(UTC).isoformat()
+        write_recording_journal(directory, state)
+        start_dispatched = True
+        await call(session, "start_record")
+        for attempt in range(START_STATUS_ATTEMPTS):
+            status = await call(session, "get_record_status")
+            if status["outputActive"]:
+                break
+            if attempt + 1 < START_STATUS_ATTEMPTS:
+                await asyncio.sleep(START_STATUS_INTERVAL)
+        else:
+            raise RuntimeError(
+                "OBS start was requested but is not confirmed yet. Inspect status before proceeding; "
+                "the recording directory and start journal have been preserved."
+            )
+        state["state"] = "recording"
+        write_recording_journal(directory, state)
+    except Exception:
+        # OBS starts asynchronously. Once dispatched, even an inactive status
+        # may mean that startup is pending; preserve its directory and journal.
+        try:
+            if not start_dispatched and not (await call(session, "get_record_status"))["outputActive"]:
+                current = (await call(session, "get_record_directory"))["recordDirectory"]
+                if Path(current).resolve() == directory:
+                    await call(session, "set_record_directory", path=previous)
+                state["state"] = "failed"
+                write_recording_journal(directory, state)
+        except Exception:
+            pass
+        raise
+    return {
+        "recording": True,
+        "scene": args.scene,
+        "record_directory": str(directory),
+        "journal": str(directory / RECORDING_JOURNAL),
+        "started_at": state["started_at"],
+    }
+
+
+async def stop_recording(session: ClientSession, args: argparse.Namespace) -> dict:
+    """Stop only the explicitly started recording associated with this journal."""
+    if args.record_dir is None:
+        raise ValueError("stop-recording requires --record-dir from the start-recording result.")
+    directory = recording_directory(args.record_dir)
+    journal = directory / RECORDING_JOURNAL
+    if not journal.is_file() or journal.is_symlink():
+        raise ValueError("No regular recording journal exists in that directory.")
+    state = json.loads(journal.read_text())
+    if (
+        not isinstance(state, dict)
+        or state.get("version") != 1
+        or state.get("record_directory") != str(directory)
+    ):
+        raise ValueError("The recording journal does not match this directory.")
+    if state.get("state") in ("stopped", "stopped_unverified"):
+        if not state.get("previous_directory_restored"):
+            state["previous_directory_restored"] = await restore_record_directory(session, directory, state)
+            write_recording_journal(directory, state)
+        if state["state"] == "stopped_unverified":
+            raise RuntimeError(
+                "OBS was already stopped, but its output file remains unverified. "
+                "Inspect the recording directory; no new recording was stopped."
+            )
+        return {
+            "recording": False,
+            "output_path": state["output_path"],
+            "already_stopped": True,
+            "previous_directory_restored": state.get("previous_directory_restored", False),
+        }
+    if state.get("state") not in ("recording", "start_requested"):
+        raise ValueError("This journal does not identify a recording started by this helper.")
+    status = await call(session, "get_record_status")
+    if not status["outputActive"]:
+        raise RuntimeError("OBS is not recording; it may have been stopped outside this helper.")
+    current = (await call(session, "get_record_directory"))["recordDirectory"]
+    if Path(current).resolve() != directory:
+        raise RuntimeError("OBS is recording to another directory. That recording will not be stopped.")
+    # OBS exposes duration rather than a recording ID. A much younger output
+    # indicates that somebody replaced our recording; do not claim ownership.
+    age_ms = (datetime.now(UTC) - datetime.fromisoformat(state["started_at"])).total_seconds() * 1000
+    if isinstance(status.get("outputDuration"), (int, float)) and status["outputDuration"] + 10000 < age_ms:
+        raise RuntimeError(
+            "The active OBS recording no longer matches this start time. It will not be stopped."
+        )
+    result = await call(session, "stop_record")
+    raw_output = result.get("outputPath")
+    output = Path(raw_output).expanduser().resolve() if isinstance(raw_output, str) and raw_output else None
+    if (
+        output is None
+        or not output.is_relative_to(directory)
+        or not output.is_file()
+        or output.stat().st_size == 0
+    ):
+        state.update(state="stopped_unverified", stopped_at=datetime.now(UTC).isoformat())
+        write_recording_journal(directory, state)
+        state["previous_directory_restored"] = await restore_record_directory(session, directory, state)
+        write_recording_journal(directory, state)
+        raise RuntimeError(
+            "OBS stopped, but its output file could not be verified in the recording directory."
+        )
+    state.update(state="stopped", stopped_at=datetime.now(UTC).isoformat(), output_path=str(output))
+    write_recording_journal(directory, state)
+    state["previous_directory_restored"] = await restore_record_directory(session, directory, state)
+    write_recording_journal(directory, state)
+    return {
+        "recording": False,
+        "output_path": str(output),
+        "bytes": output.stat().st_size,
+        "record_directory": str(directory),
+        "previous_directory_restored": state["previous_directory_restored"],
+    }
+
+
 async def operate(args: argparse.Namespace) -> None:
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
     server = StdioServerParameters(
         command=sys.executable,
         args=["-c", "from obs_mcp.main import main; main()"],
@@ -198,6 +418,10 @@ async def operate(args: argparse.Namespace) -> None:
                 result = await setup(session, args)
             elif args.action == "preview":
                 result = await call(session, "open_source_projector", source_name=args.scene)
+            elif args.action == "start-recording":
+                result = await start_recording(session, args)
+            elif args.action == "stop-recording":
+                result = await stop_recording(session, args)
             else:
                 # A dormant OBS preview may need one render for font/image
                 # sources to warm up before the screenshot we keep.
@@ -219,7 +443,10 @@ async def operate(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["status", "setup", "preview", "screenshot", "terminal"])
+    parser.add_argument(
+        "action",
+        choices=["status", "setup", "preview", "screenshot", "terminal", "start-recording", "stop-recording"],
+    )
     parser.add_argument("--scene", default="Crossroads Battle")
     parser.add_argument("--buyer-title", default="CROSSROADS | BUYER AGENT")
     parser.add_argument("--seller-title", default="CROSSROADS | SELLER AGENT")
@@ -227,6 +454,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("work/battle/obs-preview.png"))
     parser.add_argument("--role", choices=["buyer", "seller"])
     parser.add_argument("--run-dir", type=Path)
+    parser.add_argument(
+        "--record-dir",
+        type=Path,
+        help="Dedicated directory under backend/work/recorded-demo; generated on start if omitted, required on stop",
+    )
     try:
         args = parser.parse_args()
         if args.action == "terminal":
@@ -256,6 +488,12 @@ def main() -> None:
         asyncio.run(operate(args))
     except (ValueError, RuntimeError) as error:
         parser.exit(1, f"{error}\n")
+    except Exception:
+        # MCP transports may wrap failures in ExceptionGroup. Do not print raw
+        # transport tracebacks, configuration values or source settings.
+        parser.exit(
+            1, "OBS MCP operation failed. Inspect status before retrying and check the OBS connection.\n"
+        )
 
 
 if __name__ == "__main__":

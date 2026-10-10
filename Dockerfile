@@ -5,8 +5,9 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --python /usr/local/bin/python
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 COPY market ./market
+COPY mcp_server ./mcp_server
 COPY alembic ./alembic
 COPY alembic.ini ./
 RUN useradd --uid 10001 --create-home market
 USER market
-CMD ["uvicorn", "market.main:app", "--host", "0.0.0.0", "--port", "8100"]
+CMD ["uvicorn", "market.main:app", "--host", "0.0.0.0", "--port", "8100", "--no-access-log"]

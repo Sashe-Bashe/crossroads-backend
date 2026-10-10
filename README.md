@@ -2,6 +2,8 @@
 
 FastAPI authority for a provider-neutral B2B marketplace. PostgreSQL stores commerce and authorization; MinIO stores private images. External agents use the [Python CLI](https://github.com/iivko/crossroads-cli/blob/main/README.md). Humans inspect products and approve exact offers in the [Next.js dashboard](https://github.com/iivko/crossroads-frontend/blob/main/README.md).
 
+Connect an assistant with the [local MCP server](mcp_server/README.md): 13 typed, workspace-scoped tools with human-only order approval. Configure [Google or ChatGPT website sign-in](docs/identity.md) through explicit account linking; provider credentials and registered callbacks are required.
+
 New here? Follow the [step-by-step usage guide](docs/QUICKSTART.md).
 
 For a live buyer/seller negotiation with your own LLMs, follow the [chair battle guide](docs/BATTLE.md). It includes private minimum/maximum rules, a chair-only setup, independent agent sessions, and an [OBS MCP preview](docs/OBS_BATTLE.md).
@@ -75,7 +77,7 @@ uv sync --frozen
 uv run alembic upgrade head
 uv run python -m market.manage storage-init
 uv run python -m market.manage seed
-uv run uvicorn market.main:app --reload --host 127.0.0.1 --port 8100
+uv run uvicorn market.main:app --reload --host 127.0.0.1 --port 8100 --no-access-log
 ```
 
 In a second terminal, run `uv run python -m market.worker`. Frontend and CLI setup is documented in their repositories. Do not run host API/worker processes and the Compose equivalents on the same port when switching environments.
@@ -86,7 +88,7 @@ Create a non-demo role-bound workspace and account with the operator command:
 uv run python -m market.manage add-user --email owner@example.com --name 'Workspace Owner' --workspace 'Acme Procurement' --role buyer
 ```
 
-The command prompts for a password. One user can have multiple memberships in the database; each workspace and each agent credential has a single buyer or seller role. The current release has no public registration, SSO or membership-management UI.
+The command prompts for a password. One user can have multiple memberships in the database; each workspace and each agent credential has a single buyer or seller role. The current release has no public registration or membership-management UI. Google and ChatGPT sign-in require configured providers and an explicitly linked existing account.
 
 ## Tests
 

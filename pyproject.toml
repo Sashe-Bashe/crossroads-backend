@@ -7,15 +7,19 @@ dependencies = [
   "sqlalchemy>=2.0,<3", "psycopg[binary]>=3.2,<4", "alembic>=1.14,<2",
   "pydantic-settings>=2.7,<3", "pwdlib[argon2]>=0.2,<1",
   "python-multipart>=0.0.20", "minio>=7.2,<8", "pillow>=11,<13",
-  "typer>=0.15,<1", "httpx>=0.28,<1"
+  "typer>=0.15,<1", "httpx>=0.28,<1", "authlib>=1.6,<2"
 ]
+[project.optional-dependencies]
+mcp = ["fastmcp>=3,<4"]
+[project.scripts]
+neopact-mcp = "mcp_server.__main__:main"
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "fastmcp>=3,<4"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
-packages = ["market"]
+packages = ["market", "mcp_server"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 [tool.ruff]

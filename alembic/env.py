@@ -2,6 +2,7 @@ from alembic import context
 from market.config import settings
 from market.db import Base, engine
 import market.models  # noqa: F401
+import market.identity  # noqa: F401
 
 if context.is_offline_mode():
     context.configure(url=settings.database_url, target_metadata=Base.metadata, literal_binds=True)

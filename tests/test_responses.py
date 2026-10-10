@@ -11,6 +11,7 @@ from test_marketplace import BASE, action, browser, data_request, launch, user
 from market import service
 from market.config import settings
 from market.db import session
+from market.identity import IDENTITY_JSON_OPERATIONS, IDENTITY_REDIRECT_OPERATIONS
 from market.main import app
 from market.responses import CONTRACTS, IDEMPOTENT_OPERATIONS, ErrorResponse
 
@@ -236,6 +237,10 @@ def test_openapi_matches_every_json_endpoint_and_binary_exception():
                     assert set(definition["content"]) == {"image/jpeg"}
                     assert "x-object-label" not in operation
                     continue
+                if operation["operationId"] in IDENTITY_REDIRECT_OPERATIONS:
+                    assert status == "303"
+                    assert operation["x-response-format"] == "redirect"
+                    continue
                 ref = definition["content"]["application/json"]["schema"]["$ref"].split("/")[-1]
                 envelope = components[ref]
                 label = operation["x-object-label"]
@@ -245,7 +250,9 @@ def test_openapi_matches_every_json_endpoint_and_binary_exception():
                 payload = envelope["properties"][label]["$ref"].split("/")[-1]
                 assert components[payload]["type"] == "object"
                 assert envelope["additionalProperties"] is False
-    assert names == set(CONTRACTS) | {"image_content"}
+    assert (
+        names == set(CONTRACTS) | {"image_content"} | IDENTITY_JSON_OPERATIONS | IDENTITY_REDIRECT_OPERATIONS
+    )
     assert schema["paths"][BASE + "/auth/token"]["post"]["security"] == []
     assert schema["paths"][BASE + "/approvals/{room_id}/approve"]["post"]["security"] == [
         {"BrowserSession": []}

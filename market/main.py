@@ -16,6 +16,7 @@ from .auth import ROLE_SCOPES, Actor, actor, check_origin, create_agent, login, 
 from .config import settings
 from .db import now, session
 from .errors import Problem, require
+from .identity import router as identity_router
 from .middleware import BodyLimitMiddleware, ResourceCORSMiddleware
 from .models import (
     Approval,
@@ -795,6 +796,7 @@ def inbox(a: Actor = Depends(actor)):
 
 
 app.include_router(api)
+app.include_router(identity_router)
 
 
 def openapi_schema():

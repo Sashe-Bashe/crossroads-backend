@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image as PILImage
+from response_helpers import response_data
 from sqlalchemy import func, select
 
 from market import media, storage
@@ -24,7 +25,7 @@ def user(client, key, agent=False):
         BASE + "/auth/token", json={"email": key + "@demo.local", "password": settings.demo_password}
     )
     assert response.status_code == 200, response.text
-    headers = {"Authorization": "Bearer " + response.json()["token"], "Idempotency-Key": str(uuid4())}
+    headers = {"Authorization": "Bearer " + response_data(response)["token"], "Idempotency-Key": str(uuid4())}
     if agent:
         role = "buyer" if key == "buyer" else "seller"
         result = client.post(
@@ -33,7 +34,7 @@ def user(client, key, agent=False):
             json={"name": "Test agent", "scopes": sorted(ROLE_SCOPES[role])},
         )
         assert result.status_code == 201, result.text
-        headers["Authorization"] = "Bearer " + result.json()["token"]
+        headers["Authorization"] = "Bearer " + response_data(result)["token"]
     return headers
 
 
@@ -57,10 +58,10 @@ def launch(client, buyer, **overrides):
     buyer = {**buyer, "Idempotency-Key": str(uuid4())}
     res = client.post(BASE + "/requests", headers=buyer, json=data_request(**overrides))
     assert res.status_code == 201, res.text
-    rid = res.json()["id"]
+    rid = response_data(res)["id"]
     res = client.post(BASE + f"/requests/{rid}/launch", headers={**buyer, "Idempotency-Key": str(uuid4())})
     assert res.status_code == 200, res.text
-    rooms = client.get(BASE + f"/requests/{rid}", headers=buyer).json()["negotiations"]
+    rooms = response_data(client.get(BASE + f"/requests/{rid}", headers=buyer))["negotiations"]
     return rid, rooms
 
 
@@ -69,8 +70,8 @@ def action(client, headers, room_id, kind, **values):
     assert claim.status_code == 200, claim.text
     payload = {
         "type": kind,
-        "expected_version": claim.json()["expected_version"],
-        "claim_token": claim.json()["claim_token"],
+        "expected_version": response_data(claim)["expected_version"],
+        "claim_token": response_data(claim)["claim_token"],
         **values,
     }
     return client.post(
@@ -97,9 +98,9 @@ def deal(client):
         },
     )
     assert result.status_code == 200, result.text
-    result = action(client, buyer, room["id"], "accept", offer_id=result.json()["offer_id"])
+    result = action(client, buyer, room["id"], "accept", offer_id=response_data(result)["offer_id"])
     assert result.status_code == 200, result.text
-    current = client.get(BASE + f"/negotiations/{room['id']}", headers=buyer).json()
+    current = response_data(client.get(BASE + f"/negotiations/{room['id']}", headers=buyer))
     return buyer, seller, current
 
 
@@ -126,7 +127,7 @@ def test_matching_excludes_stock_and_delivery(client):
     buyer = user(client, "buyer", True)
     rid, rooms = launch(client, buyer)
     assert len(rooms) == 2
-    matches = client.get(BASE + f"/requests/{rid}/matches", headers=buyer).json()
+    matches = response_data(client.get(BASE + f"/requests/{rid}/matches", headers=buyer))
     excluded = next(m for m in matches if m["product_id"] == "prod-atelier")
     assert not excluded["eligible"] and len(excluded["reasons"]) == 2
 
@@ -186,11 +187,11 @@ def test_context_privacy_and_room_isolation(client):
     seller = user(client, "forma", True)
     view = client.get(BASE + f"/negotiations/{room['id']}/context", headers=seller)
     assert view.status_code == 200
-    ctx = view.json()
+    ctx = response_data(view)
     assert "max_total" not in ctx["request"] and "description" not in ctx["request"]
     assert "700000" not in view.text and "7000 EUR" not in view.text
     assert ctx["private_rules"]["min_unit_price"] == 8300
-    buyer_context = client.get(BASE + f"/negotiations/{room['id']}/context", headers=buyer).json()
+    buyer_context = response_data(client.get(BASE + f"/negotiations/{room['id']}/context", headers=buyer))
     assert "min_unit_price" not in buyer_context["private_rules"]
     assert (
         client.get(BASE + f"/negotiations/{room['id']}", headers=user(client, "nord", True)).status_code
@@ -216,7 +217,7 @@ def test_seller_floor_is_enforced_not_prompted(client):
             "deposit_percent": 0,
         },
     )
-    assert response.status_code == 422 and response.json()["error"]["code"] == "policy_violation"
+    assert response.status_code == 422 and response_data(response)["error"]["code"] == "policy_violation"
 
 
 def test_two_browser_approvals_create_one_order_and_allocate_stock(system):
@@ -232,17 +233,17 @@ def test_two_browser_approvals_create_one_order_and_allocate_stock(system):
         assert res.status_code == 403
     b, s = browser("buyer"), browser("forma")
     result = decision(b, room)
-    assert result.status_code == 200 and result.json()["order"] is None
+    assert result.status_code == 200 and response_data(result)["order"] is None
     result = decision(s, room)
     assert result.status_code == 200, result.text
-    assert result.json()["order"]["offer"]["terms"]["total"] == 688000
+    assert response_data(result)["order"]["offer"]["terms"]["total"] == 688000
     assert decision(b, room).status_code == 200
     with factory() as db:
         assert db.scalar(select(func.count()).select_from(Order)) == 1
         assert db.scalar(select(func.count()).select_from(Allocation)) == 1
         assert db.get(Product, "prod-forma").stock == 160
-    assert len(client.get(BASE + "/orders", headers=seller).json()["items"]) == 1
-    assert client.get(BASE + "/orders", headers=user(client, "nord")).json()["items"] == []
+    assert len(response_data(client.get(BASE + "/orders", headers=seller))["items"]) == 1
+    assert response_data(client.get(BASE + "/orders", headers=user(client, "nord")))["items"] == []
 
 
 def test_csrf_and_origin_required_for_browser_writes(client):
@@ -269,7 +270,7 @@ def test_stock_change_invalidates_approval_and_never_revives(system):
     assert decision(browser("buyer"), room).status_code == 200
     seller = user(client, "forma")
     for stock in (79, 240):
-        p = client.get(BASE + "/products/prod-forma", headers=seller).json()
+        p = response_data(client.get(BASE + "/products/prod-forma", headers=seller))
         res = client.put(
             BASE + "/products/prod-forma/stock",
             headers=seller,
@@ -306,12 +307,12 @@ def test_idempotency_and_claims(client):
     buyer, seller = user(client, "buyer", True), user(client, "forma", True)
     first = client.post(BASE + "/requests", headers=buyer, json=data_request())
     second = client.post(BASE + "/requests", headers=buyer, json=data_request())
-    assert first.json()["id"] == second.json()["id"]
+    assert response_data(first)["id"] == response_data(second)["id"]
     changed = client.post(BASE + "/requests", headers=buyer, json=data_request(max_total=500000))
     assert changed.status_code == 409
     _, rooms = launch(client, buyer)
     room = next(r for r in rooms if r["product_id"] == "prod-forma")
-    claim = client.post(BASE + f"/negotiations/{room['id']}/claim", headers=seller).json()
+    claim = response_data(client.post(BASE + f"/negotiations/{room['id']}/claim", headers=seller))
     assert client.post(BASE + f"/negotiations/{room['id']}/claim", headers=seller).status_code == 409
     payload = {
         "type": "propose",
@@ -327,7 +328,7 @@ def test_idempotency_and_claims(client):
     first = client.post(BASE + f"/negotiations/{room['id']}/actions", headers=seller, json=payload)
     second = client.post(BASE + f"/negotiations/{room['id']}/actions", headers=seller, json=payload)
     assert first.status_code == 200, first.text
-    assert first.json() == second.json()
+    assert response_data(first) == response_data(second)
 
 
 def test_concurrent_approvals_do_not_double_allocate(system):
@@ -346,7 +347,9 @@ def test_low_budget_and_impossible_deadline(client):
     buyer = user(client, "buyer", True)
     rid, rooms = launch(client, buyer, latest_delivery=(date.today() + timedelta(days=2)).isoformat())
     assert not rooms
-    assert client.get(BASE + "/requests/" + rid, headers=buyer).json()["request"]["state"] == "no_match"
+    assert (
+        response_data(client.get(BASE + "/requests/" + rid, headers=buyer))["request"]["state"] == "no_match"
+    )
     _, rooms = launch(client, buyer, max_total=400000)
     room = next(r for r in rooms if r["product_id"] == "prod-forma")
     offered = action(
@@ -362,15 +365,19 @@ def test_low_budget_and_impossible_deadline(client):
         },
     )
     assert offered.status_code == 200
-    rejected = action(client, buyer, room["id"], "accept", offer_id=offered.json()["offer_id"])
+    rejected = action(client, buyer, room["id"], "accept", offer_id=response_data(offered)["offer_id"])
     assert rejected.status_code == 422
 
 
 def test_revoked_token_loses_access(client):
     owner = user(client, "buyer")
-    issued = client.post(
-        BASE + "/credentials", headers=owner, json={"name": "Temporary buyer", "scopes": ["catalogue:read"]}
-    ).json()
+    issued = response_data(
+        client.post(
+            BASE + "/credentials",
+            headers=owner,
+            json={"name": "Temporary buyer", "scopes": ["catalogue:read"]},
+        )
+    )
     h = {"Authorization": "Bearer " + issued["token"]}
     assert client.get(BASE + "/products", headers=h).status_code == 200
     assert client.get(BASE + "/negotiations", headers=h).status_code == 403
@@ -411,7 +418,7 @@ def test_images_real_minio_processing_and_access(system, monkeypatch, tmp_path):
         )
         assert result.status_code == 202, result.text
         assert media.process_one()
-        items = client.get(BASE + "/products/prod-forma/images", headers=buyer).json()
+        items = response_data(client.get(BASE + "/products/prod-forma/images", headers=buyer))
         assert len(items) == 1 and items[0]["status"] == "ready"
         body = client.get(BASE + items[0]["content_path"], headers=buyer)
         assert body.status_code == 200
@@ -425,7 +432,7 @@ def test_images_real_minio_processing_and_access(system, monkeypatch, tmp_path):
         )
         assert second.status_code == 202
         assert media.process_one()
-        gallery = client.get(BASE + "/products/prod-forma", headers=seller).json()
+        gallery = response_data(client.get(BASE + "/products/prod-forma", headers=seller))
         ids = [item["id"] for item in gallery["images"]]
         assert len(ids) == 2
         reordered = client.put(
@@ -434,20 +441,20 @@ def test_images_real_minio_processing_and_access(system, monkeypatch, tmp_path):
             json={"image_ids": ids[::-1], "expected_version": gallery["version"]},
         )
         assert reordered.status_code == 200, reordered.text
-        assert [item["id"] for item in reordered.json()["images"]] == ids[::-1]
+        assert [item["id"] for item in response_data(reordered)["images"]] == ids[::-1]
         covered = client.put(
             BASE + "/products/prod-forma/images/cover",
             headers=seller,
-            json={"image_id": ids[1], "expected_version": reordered.json()["version"]},
+            json={"image_id": ids[1], "expected_version": response_data(reordered)["version"]},
         )
         assert covered.status_code == 200
-        assert covered.json()["cover_id"] == ids[1]
+        assert response_data(covered)["cover_id"] == ids[1]
         _, _, room = deal(client)
         assert decision(browser("buyer"), room).status_code == 200
         confirmed = decision(browser("forma"), room)
         assert confirmed.status_code == 200
-        assert len(confirmed.json()["order"]["offer"]["product"]["images"]) == 2
-        gallery = client.get(BASE + "/products/prod-forma", headers=seller).json()
+        assert len(response_data(confirmed)["order"]["offer"]["product"]["images"]) == 2
+        gallery = response_data(client.get(BASE + "/products/prod-forma", headers=seller))
         removed = client.delete(
             BASE + f"/products/prod-forma/images/{ids[0]}",
             headers=seller,

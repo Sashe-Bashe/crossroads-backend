@@ -1,12 +1,14 @@
+import logging
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, Query, Request, Response, UploadFile
-from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Depends, FastAPI, File, Form, Header, Query, Request, Response, UploadFile
+from fastapi.exceptions import RequestValidationError, ResponseValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy import delete, or_, select, text
 from sqlalchemy.exc import IntegrityError
+from starlette.exceptions import HTTPException
 
 from . import media, storage
 from . import service as s
@@ -14,7 +16,7 @@ from .auth import ROLE_SCOPES, Actor, actor, check_origin, create_agent, login, 
 from .config import settings
 from .db import now, session
 from .errors import Problem, require
-from .middleware import BodyLimitMiddleware
+from .middleware import BodyLimitMiddleware, ResourceCORSMiddleware
 from .models import (
     Approval,
     Credential,
@@ -28,6 +30,7 @@ from .models import (
     Room,
     Workspace,
 )
+from .responses import IDEMPOTENT_OPERATIONS, ResourceRouter
 from .schemas import (
     ActionInput,
     ApprovalInput,
@@ -45,24 +48,36 @@ from .schemas import (
 
 app = FastAPI(
     title="Crossroads Marketplace",
-    version="1.0.0",
-    description="Provider-neutral B2B commerce. Money is integer EUR cents. All agent writes are policy checked; approvals require browser sessions.",
+    version="1.1.0",
+    description="Provider-neutral B2B commerce. Every API JSON response has exactly one resource object and a status_code matching HTTP; failures use error. Lists live in the resource's items array. Image content remains binary and /openapi.json retains standard OpenAPI structure. Money is integer EUR cents. All agent writes are policy checked; approvals require browser sessions. See docs/api.md for the complete integration guide.",
+    redirect_slashes=False,
 )
 app.add_middleware(
-    CORSMiddleware,
+    ResourceCORSMiddleware,
     allow_origins=settings.allowed_origins.split(","),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "X-Workspace-ID", "X-CSRF-Token", "Idempotency-Key"],
 )
-api = APIRouter(prefix="/api/v1")
+api = ResourceRouter(prefix="/api/v1")
+
+
+def error_response(status, code, message, details=None, headers=None):
+    return JSONResponse(
+        {"error": {"code": code, "message": message, "details": details}, "status_code": status},
+        status_code=status,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            **(headers or {}),
+        },
+    )
 
 
 @app.exception_handler(Problem)
 async def problem_handler(request, exc):
-    return JSONResponse(
-        {"error": {"code": exc.code, "message": exc.message, "details": exc.details}}, status_code=exc.status
-    )
+    return error_response(exc.status, exc.code, exc.message, exc.details)
 
 
 @app.exception_handler(RequestValidationError)
@@ -70,23 +85,40 @@ async def problem_handler(request, exc):
 async def validation_handler(request, exc):
     # Do not echo invalid inputs: they can contain passwords or private policies.
     errors = [{"field": ".".join(map(str, i["loc"])), "message": i["msg"]} for i in exc.errors()]
-    return JSONResponse(
-        {"error": {"code": "validation_error", "message": "Input validation failed", "details": errors}},
-        status_code=422,
-    )
+    return error_response(422, "validation_error", "Input validation failed", errors)
 
 
 @app.exception_handler(IntegrityError)
 async def integrity_handler(request, exc):
-    return JSONResponse(
-        {"error": {"code": "conflict", "message": "A conflicting record already exists. Refresh and retry."}},
-        status_code=409,
-    )
+    return error_response(409, "conflict", "A conflicting record already exists. Refresh and retry.")
+
+
+@app.exception_handler(HTTPException)
+async def http_error_handler(request, exc):
+    if exc.status_code >= 500:
+        return error_response(
+            exc.status_code, "internal_error", "An unexpected server error occurred", headers=exc.headers
+        )
+    code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "http_error")
+    return error_response(exc.status_code, code, str(exc.detail), headers=exc.headers)
+
+
+@app.exception_handler(Exception)
+@app.exception_handler(ResponseValidationError)
+async def unexpected_error_handler(request, exc):
+    # Do not log request bodies, credentials, validation inputs or private limits.
+    logging.getLogger(__name__).error("Unhandled API failure: %s", type(exc).__name__)
+    return error_response(500, "internal_error", "An unexpected server error occurred")
 
 
 @app.middleware("http")
 async def private_responses(request, call_next):
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        # Handle before Starlette's outer ServerErrorMiddleware, which re-raises
+        # uncaught exceptions into Uvicorn's traceback logger after sending 500.
+        response = await unexpected_error_handler(request, exc)
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -694,3 +726,41 @@ def inbox(a: Actor = Depends(actor)):
 
 
 app.include_router(api)
+
+
+def openapi_schema():
+    if app.openapi_schema is None:
+        schema = get_openapi(
+            title=app.title, version=app.version, description=app.description, routes=app.routes
+        )
+        schema.setdefault("components", {})["securitySchemes"] = {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "description": "Opaque CLI-user or scoped agent token. Never a browser cookie token.",
+            },
+            "BrowserSession": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "market_session",
+                "description": "HttpOnly browser cookie; browser writes also require an allowed Origin and matching X-CSRF-Token.",
+            },
+        }
+        # Domain validation intentionally retains its specific missing-key error.
+        # The public schema still makes this mandatory header explicit to clients.
+        for methods in schema["paths"].values():
+            for operation in methods.values():
+                if operation["operationId"] in IDEMPOTENT_OPERATIONS:
+                    for parameter in operation.get("parameters", []):
+                        if parameter["in"] == "header" and parameter["name"].lower() == "idempotency-key":
+                            parameter.update(
+                                name="Idempotency-Key",
+                                required=True,
+                                schema={"type": "string", "minLength": 8, "maxLength": 128},
+                                description="Required stable key for this logical write. Retry an identical request with the same key; a changed operation or body requires a new key.",
+                            )
+        app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = openapi_schema

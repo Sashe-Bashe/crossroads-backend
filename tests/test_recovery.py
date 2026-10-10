@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 import typer
+from response_helpers import response_data
 from sqlalchemy import func, select
 from test_marketplace import BASE, action, browser, deal, decision, launch, user
 
@@ -15,7 +16,7 @@ from market.models import Approval, Offer, Order, Product, Room, Workspace
 def test_competing_requests_cannot_oversell_or_restore_stale_stock(system):
     client, factory = system
     owner = user(client, "forma")
-    p = client.get(BASE + "/products/prod-forma", headers=owner).json()
+    p = response_data(client.get(BASE + "/products/prod-forma", headers=owner))
     client.put(
         BASE + "/products/prod-forma/stock",
         headers=owner,
@@ -23,7 +24,7 @@ def test_competing_requests_cannot_oversell_or_restore_stale_stock(system):
     ).raise_for_status()
     _, _, first = deal(client)
     _, _, second = deal(client)
-    stale_version = client.get(BASE + "/products/prod-forma", headers=owner).json()["version"]
+    stale_version = response_data(client.get(BASE + "/products/prod-forma", headers=owner))["version"]
     buyer, seller = browser("buyer"), browser("forma")
     assert decision(buyer, first).status_code == 200
     assert decision(buyer, second).status_code == 200
@@ -57,9 +58,9 @@ def test_expiry_removes_approvals_and_user_retry_preserves_offer_history(system,
     assert client.post(path, headers=buyer).status_code == 403
     response = client.post(path, headers=user(client, "buyer"))
     assert response.status_code == 200, response.text
-    assert response.json()["run"] == 2
-    assert response.json()["current_offer"] is None
-    assert len(response.json()["offers"]) == 1
+    assert response_data(response)["run"] == 2
+    assert response_data(response)["current_offer"] is None
+    assert len(response_data(response)["offers"]) == 1
 
 
 def test_expired_turn_can_be_reclaimed_but_old_token_is_rejected(system):
@@ -68,10 +69,10 @@ def test_expired_turn_can_be_reclaimed_but_old_token_is_rejected(system):
     _, rooms = launch(client, buyer)
     room = next(r for r in rooms if r["product_id"] == "prod-forma")
     path = BASE + f"/negotiations/{room['id']}"
-    old = client.post(path + "/claim", headers=seller).json()
+    old = response_data(client.post(path + "/claim", headers=seller))
     with factory.begin() as db:
         db.get(Room, room["id"]).claim_until = now() - timedelta(seconds=1)
-    new = client.post(path + "/claim", headers=seller).json()
+    new = response_data(client.post(path + "/claim", headers=seller))
     payload = {
         "type": "decline",
         "expected_version": old["expected_version"],
@@ -90,10 +91,10 @@ def test_clarification_before_offer_does_not_advertise_illegal_buyer_proposal(cl
     _, rooms = launch(client, buyer)
     room = next(r for r in rooms if r["product_id"] == "prod-forma")
     assert action(client, seller, room["id"], "request_clarification", topic="images").status_code == 200
-    context = client.get(BASE + f"/negotiations/{room['id']}/context", headers=buyer).json()
+    context = response_data(client.get(BASE + f"/negotiations/{room['id']}/context", headers=buyer))
     assert "propose" not in context["allowed_actions"]
     assert action(client, buyer, room["id"], "answer_clarification", topic="images").status_code == 200
-    context = client.get(BASE + f"/negotiations/{room['id']}/context", headers=seller).json()
+    context = response_data(client.get(BASE + f"/negotiations/{room['id']}/context", headers=seller))
     assert "propose" in context["allowed_actions"]
 
 
@@ -113,7 +114,7 @@ def test_product_rules_cannot_relax_workspace_limits(client):
         },
     )
     assert result.status_code == 200, result.text
-    view = client.get(BASE + "/rules?product_id=prod-forma", headers=seller).json()
+    view = response_data(client.get(BASE + "/rules?product_id=prod-forma", headers=seller))
     assert view["effective"]["min_unit_price"] == 9000
     assert view["effective"]["max_discount_percent"] == 10
     assert view["effective"]["min_deposit_percent"] == 35
@@ -128,7 +129,7 @@ def test_chunked_body_limit_cannot_be_bypassed(client):
         BASE + "/auth/token", content=chunks(), headers={"Content-Type": "application/json"}
     )
     assert response.status_code == 413
-    assert response.json()["error"]["code"] == "body_too_large"
+    assert response_data(response)["error"]["code"] == "body_too_large"
 
 
 def test_demo_reset_requires_explicit_flag_and_refuses_non_demo_data(system):
@@ -167,17 +168,17 @@ def test_offer_expiry_is_enforced_before_worker_runs(system):
     )
     assert proposal.status_code == 200
     path = BASE + f"/negotiations/{room['id']}"
-    claim = client.post(path + "/claim", headers=buyer).json()
+    claim = response_data(client.post(path + "/claim", headers=buyer))
     with factory.begin() as db:
-        db.get(Offer, proposal.json()["offer_id"]).expires_at = now() - timedelta(seconds=1)
+        db.get(Offer, response_data(proposal)["offer_id"]).expires_at = now() - timedelta(seconds=1)
     payload = {
         "type": "accept",
-        "offer_id": proposal.json()["offer_id"],
+        "offer_id": response_data(proposal)["offer_id"],
         "claim_token": claim["claim_token"],
         "expected_version": claim["expected_version"],
     }
     response = client.post(path + "/actions", headers=buyer, json=payload)
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "offer_expired"
-    assert client.get(path + "/context", headers=buyer).json()["allowed_actions"] == []
+    assert response_data(response)["error"]["code"] == "offer_expired"
+    assert response_data(client.get(path + "/context", headers=buyer))["allowed_actions"] == []
     assert client.post(path + "/claim", headers=buyer).status_code == 409

@@ -22,14 +22,14 @@ def get_token(name, scopes):
     with httpx.Client(base_url=API + "/api/v1", trust_env=False) as c:
         res = c.post("/auth/token", json={"email": name + "@demo.local", "password": PASSWORD})
         res.raise_for_status()
-        owner = res.json()["token"]
+        owner = res.json()["token"]["token"]
         res = c.post(
             "/credentials",
             headers={"Authorization": "Bearer " + owner},
             json={"name": "Scripted CLI demonstration", "scopes": scopes},
         )
         res.raise_for_status()
-        return res.json()["token"]
+        return res.json()["credential"]["token"]
 
 
 def main():

@@ -256,6 +256,8 @@ Seller room views omit the buyer's raw description, budget, deposit cap and pref
 
 `GET /rules` returns configured rules, effective rules and source versions. Seller fields are `min_unit_price`, `max_discount_percent`, `min_deposit_percent`, `discount_min_quantity`; buyer fields are `max_total`, `max_deposit_percent`. A target with no saved policy uses `{"expected_version":0,"rules":{...}}`; otherwise use the current version returned by GET, including for seeded policies. Only user administrators can write rules.
 
+Product `unit_price` is the public **asking price**, while seller `min_unit_price` is a separate **private minimum**. For example, a seller may advertise a chair at 14000 (€140), set its private minimum to 10000 (€100), and instruct its own agent to maximize the agreed price above that floor. Configure `max_discount_percent` and `discount_min_quantity` consistently: the effective floor is the greatest of the private minimum, the asking price after the allowed discount (rounded up), and the full asking price when quantity is below the discount threshold. Buyer `max_total` includes the fixed delivery charge. Only the authenticated party receives its private rules in negotiation context; neither floor nor budget is a public product field.
+
 Product policies can tighten workspace limits, never relax them. Effective maximum constraints use the minimum; minimum constraints use the maximum. Seller price floor is the greatest of the explicit floor, discount-limited list price rounded up to cents, and full list price when quantity is below the discount threshold. Buyer request limits must fit workspace limits. Proposals check the sender's constraints; acceptance and approval check both sides.
 
 Agent workflow:

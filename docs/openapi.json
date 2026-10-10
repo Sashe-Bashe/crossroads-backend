@@ -10269,7 +10269,8 @@
             "type": "integer",
             "maximum": 100000000.0,
             "exclusiveMinimum": 0.0,
-            "title": "Unit Price"
+            "title": "Unit Price",
+            "description": "Public asking price in integer EUR cents. The seller's private minimum is configured separately in product negotiation rules."
           },
           "delivery_charge": {
             "type": "integer",
@@ -10391,7 +10392,8 @@
             "type": "integer",
             "maximum": 100000000.0,
             "exclusiveMinimum": 0.0,
-            "title": "Unit Price"
+            "title": "Unit Price",
+            "description": "Public asking price in integer EUR cents. The seller's private minimum is configured separately in product negotiation rules."
           },
           "delivery_charge": {
             "type": "integer",
@@ -10497,7 +10499,8 @@
             "type": "integer",
             "maximum": 100000000.0,
             "exclusiveMinimum": 0.0,
-            "title": "Unit Price"
+            "title": "Unit Price",
+            "description": "Public asking price in integer EUR cents. The seller's private minimum is configured separately in product negotiation rules."
           },
           "delivery_charge": {
             "type": "integer",
@@ -11556,6 +11559,7 @@
             "maximum": 100000000.0,
             "minimum": 1.0,
             "title": "Min Unit Price",
+            "description": "Private minimum acceptable price per unit in EUR cents. The seller agent may negotiate higher prices; counterparties cannot read this rule.",
             "default": 1
           },
           "max_discount_percent": {

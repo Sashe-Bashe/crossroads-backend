@@ -4,6 +4,8 @@ FastAPI authority for a provider-neutral B2B marketplace. PostgreSQL stores comm
 
 New here? Follow the [step-by-step usage guide](docs/QUICKSTART.md).
 
+For a live buyer/seller negotiation with your own LLMs, follow the [chair battle guide](docs/BATTLE.md). It includes private minimum/maximum rules, a chair-only setup, independent agent sessions, and an [OBS MCP preview](docs/OBS_BATTLE.md).
+
 Integrating a client? Read the [HTTP API guide](docs/api.md) for response envelopes, all endpoints, authentication, image uploads, negotiation rules and recovery examples. JSON responses use a named object and matching HTTP status, for example `{"products":{"items":[],"total":0,"offset":0,"limit":50},"status_code":200}`. Successful image downloads remain binary. The live `/openapi.json` and tracked [schema](docs/openapi.json) include typed responses and errors for generated clients.
 
 ## Start the complete local stack

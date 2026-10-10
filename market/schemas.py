@@ -31,7 +31,11 @@ class ProductInput(Strict):
     sku: str = Field(min_length=2, max_length=50)
     category: Literal["chairs"] = "chairs"
     attributes: Attributes
-    unit_price: int = Field(gt=0, le=100_000_000)
+    unit_price: int = Field(
+        gt=0,
+        le=100_000_000,
+        description="Public asking price in integer EUR cents. The seller's private minimum is configured separately in product negotiation rules.",
+    )
     delivery_charge: int = Field(ge=0, le=100_000_000)
     lead_days: int = Field(ge=1, le=90)
     destinations: list[str] = Field(min_length=1, max_length=30)
@@ -56,7 +60,12 @@ class StockInput(Strict):
 
 
 class SellerPolicy(Strict):
-    min_unit_price: int = Field(default=1, ge=1, le=100_000_000)
+    min_unit_price: int = Field(
+        default=1,
+        ge=1,
+        le=100_000_000,
+        description="Private minimum acceptable price per unit in EUR cents. The seller agent may negotiate higher prices; counterparties cannot read this rule.",
+    )
     max_discount_percent: int = Field(default=100, ge=0, le=100)
     min_deposit_percent: int = Field(default=0, ge=0, le=100)
     discount_min_quantity: int = Field(default=1, ge=1, le=1_000_000)

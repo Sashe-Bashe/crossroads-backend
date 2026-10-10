@@ -4,6 +4,8 @@ FastAPI authority for a provider-neutral B2B marketplace. PostgreSQL stores comm
 
 New here? Follow the [step-by-step usage guide](docs/QUICKSTART.md).
 
+Integrating a client? Read the [HTTP API guide](docs/api.md) for response envelopes, all endpoints, authentication, image uploads, negotiation rules and recovery examples. JSON responses use a named object and matching HTTP status, for example `{"products":{"items":[],"total":0,"offset":0,"limit":50},"status_code":200}`. Successful image downloads remain binary. The live `/openapi.json` and tracked [schema](docs/openapi.json) include typed responses and errors for generated clients.
+
 ## Start the complete local stack
 
 Requires Docker with Compose. Clone the public repositories into sibling directories named `backend`, `frontend` and `cli`:
@@ -97,6 +99,7 @@ Tests use a disposable PostgreSQL schema per case and delete only their own sche
 - `market/media.py`: image validation, normalized JPEGs, thumbnails, content authorization and durable jobs.
 - `market/worker.py`: retryable image processing and expiry maintenance.
 - `market/main.py`: versioned REST API and safe public errors.
+- `market/responses.py`: typed resource envelopes, stable operation IDs and documented OpenAPI contracts.
 - `alembic/versions`: tracked schema migrations; web startup does not create tables or seed accounts.
 
 Commercial writes use a short PostgreSQL transaction-level advisory lock in this local release, plus row locking and unique order/allocation constraints. This intentionally serializes business mutations for predictable correctness. It is not a high-throughput multi-host queue design. No external model calls occur while a database lock is held.

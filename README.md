@@ -2,6 +2,8 @@
 
 FastAPI authority for a provider-neutral B2B marketplace. PostgreSQL stores commerce and authorization; MinIO stores private images. External agents use the [Python CLI](https://github.com/iivko/crossroads-cli/blob/main/README.md). Humans inspect products and approve exact offers in the [Next.js dashboard](https://github.com/iivko/crossroads-frontend/blob/main/README.md).
 
+New here? Follow the [step-by-step usage guide](docs/QUICKSTART.md).
+
 ## Start the complete local stack
 
 Requires Docker with Compose. Clone the public repositories into sibling directories named `backend`, `frontend` and `cli`:

@@ -1,112 +1,106 @@
-# Crossroads marketplace backend
+# Crossroads backend
 
-Independent TypeScript/Fastify repository for the marketplace's authorization and
-transaction rules. Requires **Node.js 24+**. The FE and MCP repositories communicate
-over HTTP; there are no shared packages or sibling source imports.
+FastAPI authority for a provider-neutral B2B marketplace. PostgreSQL stores commerce and authorization; MinIO stores private images. External agents use the [Python CLI](https://github.com/iivko/crossroads-cli/blob/main/README.md). Humans inspect products and approve exact offers in the [Next.js dashboard](https://github.com/iivko/crossroads-frontend/blob/main/README.md).
 
-This is a runnable **local development foundation**, not the complete paid pilot.
-It follows the [product plan](docs/product-plan.md), starting with catalog data
-services, one currency (USD), invited demo suppliers, and human-approved purchases.
+## Start the complete local stack
 
-## Run
+Requires Docker with Compose. Clone the public repositories into sibling directories named `backend`, `frontend` and `cli`:
 
 ```sh
-npm ci
+mkdir crossroads && cd crossroads
+git clone https://github.com/iivko/crossroads-backend.git backend
+git clone https://github.com/iivko/crossroads-frontend.git frontend
+git clone https://github.com/iivko/crossroads-cli.git cli
+cd backend
+```
+
+Start the stack:
+
+```sh
 cp .env.example .env
-npm run dev
+docker compose up --build -d
+docker compose exec api python -m market.manage seed
 ```
 
-API: `http://localhost:4000`. `GET /health` is public. All `/v1` routes require
-`Authorization: Bearer <token>`. Responses are plain JSON objects/arrays; failures
-use `{ "error": { "code": "...", "message": "..." } }`.
+The first MinIO build compiles a pinned upstream source revision and can take several minutes. The seed is explicit and idempotent. The worker processes its two original demo illustrations per product. It does not run an LLM or negotiate automatically.
+
+- Dashboard: http://localhost:3100
+- API health: http://127.0.0.1:8100/api/v1/health
+- Interactive API documentation: http://127.0.0.1:8100/docs
+- OpenAPI contract: http://127.0.0.1:8100/openapi.json
+- MinIO console: http://127.0.0.1:9101
+- PostgreSQL: `127.0.0.1:55433`
+
+These ports avoid the unrelated services already using 3000 and 8000. Bindings are loopback-only. Database and object data persist in Compose volumes.
+
+## Demo accounts
+
+The sample `.env` sets `DEMO_PASSWORD=local-market-demo`. All four fictional accounts use that password **only when explicitly seeded**. Changing the environment later does not rotate existing account passwords.
+
+| Email | Workspace | Role |
+| --- | --- | --- |
+| `buyer@demo.local` | Forma Studio | Buyer |
+| `forma@demo.local` | Forma Supply | Seller |
+| `nord@demo.local` | Nord Office | Seller |
+| `atelier@demo.local` | Atelier Works | Seller |
+
+The demo catalog has 240 Forma chairs, 150 Nord chairs, and 45 Atelier chairs. An 80-chair request for Sofia in 14 days matches Forma and Nord; Atelier fails stock and delivery. Seed illustrations are original code-generated CC0 fixtures, not photographs or proof of a real product.
+
+## Run the scripted external-agent demonstration
+
+With Python 3.12 and `uv` installed on the host:
 
 ```sh
-npm run check  # strict TypeScript, transaction tests, build
-npm start     # compiled API; run npm run build first
+uv sync --frozen
+uv run python scripts/demo_agents.py
 ```
 
-The server requires `DEMO_MODE=true`, binds only to loopback, and refuses
-`NODE_ENV=production`. CORS defaults to `http://localhost:3000`. Local persistence
-uses Node's built-in SQLite module (experimental in Node 24), stored at
-`.data/marketplace.db`; nothing is reset on restart. Use a different `DATABASE_PATH`
-for a fresh demo. No external database is needed to try the workflow.
+The script issues separate restricted buyer/seller tokens, invokes the actual CLI, verifies two image downloads, negotiates €6,880 with Forma, and declines Nord. It creates a new request; it never resets data, approves an order, or calls a model. Open the printed approval link, sign in as the buyer and approve, then sign out and sign in as Forma to approve the same offer. The resulting order allocates 80 units once. Repeated demonstrations consume stock only if humans confirm orders.
 
-## Demo identities and limits
+## Host development
 
-| Token | Identity | Permissions |
-| --- | --- | --- |
-| `demo-buyer-token` | Northstar human approver | Buyer flow, approve purchases, accept delivery |
-| `demo-agent-token` | Northstar delegated agent | Discover, request quotes/approval, commit approved orders, dispute |
-| `demo-seller-token` | Structured Studio human operator | Read addressed RFQs, quote, deliver |
-| `demo-seller-agent-token` | Structured Studio delegated agent | Read addressed RFQs, quote, deliver |
-| `demo-other-buyer-token` | Separate buyer organization | Tenant-isolation demonstrations |
+```sh
+docker compose up -d --build postgres minio
+uv sync --frozen
+uv run alembic upgrade head
+uv run python -m market.manage storage-init
+uv run python -m market.manage seed
+uv run uvicorn market.main:app --reload --host 127.0.0.1 --port 8100
+```
 
-These are public development fixtures, not production credentials. Verification
-badges are simulated. Agent delegations expire 30 days after the database is first
-seeded. Agent limits are $500 per purchase and $1,000 cumulative; the buyer
-organization limit is $2,000 cumulative. All placed, delivered, disputed, and
-accepted orders count toward committed spend; there is no budget reset/refund
-release yet. Delegation and suspension records are enforced but there is no
-administration UI or credential lifecycle API yet.
+In a second terminal, run `uv run python -m market.worker`. Frontend and CLI setup is documented in their repositories. Do not run host API/worker processes and the Compose equivalents on the same port when switching environments.
 
-## Implemented workflow
+Create a non-demo role-bound workspace and account with the operator command:
 
-1. Buyer discovers a listing and submits an RFQ with scope, deadline, budget, and
-   acceptance criteria. Only that listing's supplier can see and quote the RFQ.
-2. Supplier quotes in integer USD cents with a delivery duration and expiration.
-3. Buyer or delegated agent requests a backend-generated preview, then an approval.
-4. Human buyer reviews the exact preview and approves it. An agent cannot approve.
-5. Buyer or agent commits using the preview, approval, and `Idempotency-Key` header.
-6. Supplier submits an HTTPS delivery reference. The server does not fetch it.
-7. Human buyer explicitly accepts delivery or the buyer opens a dispute.
+```sh
+uv run python -m market.manage add-user --email owner@example.com --name 'Workspace Owner' --workspace 'Acme Procurement' --role buyer
+```
 
-The approval binds the quote version, supplier, price, scope, terms text/version,
-deadline, and acceptance criteria using a SHA-256 transaction snapshot. Quote
-revisions invalidate earlier previews. Human decisions and accepted contracts are
-preserved with actor, organization, and timestamps. Each mutation records an audit
-event within the same database transaction.
+The command prompts for a password. One user can have multiple memberships in the database; each workspace and each agent credential has a single buyer or seller role. The current release has no public registration, SSO or membership-management UI.
 
-Order creation uses `BEGIN IMMEDIATE`: authority, eligibility, quote freshness,
-snapshot matching, organization/agent budget checks, commitment reservation,
-approval consumption, and idempotency storage occur in one transaction. Concurrent
-attempts cannot reserve the same budget twice. One RFQ can produce only one order.
-Retries with the same key and payload return the original order; different
-payloads with that key return a conflict. A new key cannot reorder a consumed quote.
+## Tests
 
-Quote, order, and payment state are separate fields. Payment statuses explicitly
-use `simulated_pending` and `simulated_settled`. No funds are charged, transferred,
-refunded, or held. Fees and taxes are zero in this demo, not a pricing/tax decision.
+```sh
+uv run pytest -q
+uv run alembic check
+```
 
-## API
+Tests use a disposable PostgreSQL schema per case and delete only their own schema. Media tests use a uniquely named MinIO bucket and delete only their own objects. Start PostgreSQL and MinIO first. Tests do not reset the normal demo database. See [TESTING.md](docs/TESTING.md).
 
-See [API contract](docs/api.md) for routes, payloads, statuses, and curl examples.
-Development documentation consulted: [Fastify validation](https://fastify.dev/docs/latest/Reference/Validation-and-Serialization/)
-and [Node SQLite](https://nodejs.org/api/sqlite.html).
+## Architecture and guarantees
 
-## Validation
+- `market/auth.py`: Argon2 password hashing, opaque hashed credentials, role allowlists, workspace membership checks, scope restriction and browser CSRF.
+- `market/service.py`: matching, effective rules, typed actions, immutable offers, exact-version approval and atomic orders.
+- `market/policies.py`: integer-cent commercial checks; sender policies on proposal, both policies on agreement and ordering.
+- `market/media.py`: image validation, normalized JPEGs, thumbnails, content authorization and durable jobs.
+- `market/worker.py`: retryable image processing and expiry maintenance.
+- `market/main.py`: versioned REST API and safe public errors.
+- `alembic/versions`: tracked schema migrations; web startup does not create tables or seed accounts.
 
-The tests cover the complete transaction, forbidden agent approval/acceptance,
-forged approval fields, tenant isolation, quote revisions, expired quotes,
-suspended suppliers, revoked agents, cumulative and per-transaction limits,
-simultaneous commitments, idempotent replay and conflicts, separate dispute/payment
-state, and recovery across a database restart. They use Fastify injection and
-temporary SQLite stores, not live payment-provider calls.
+Commercial writes use a short PostgreSQL transaction-level advisory lock in this local release, plus row locking and unique order/allocation constraints. This intentionally serializes business mutations for predictable correctness. It is not a high-throughput multi-host queue design. No external model calls occur while a database lock is held.
 
-## Remaining pilot work
+Offers use one SKU and EUR final demo prices, with no tax calculation. Agent agreement only opens human review. Bearer credentials, including owner CLI sessions, cannot approve. A browser session is an authorization boundary, not proof that a human physically clicked; keep user passwords and approval-session cookies out of agent runtimes.
 
-- Confirm launch country, merchant of record, and reviewed contract/data terms.
-- Replace demo identity with human sessions and scoped revocable agent credentials.
-- Move persistence to PostgreSQL with migrations, relational constraints, tenant
-  controls, transaction locking, and production budget accounting. The JSON-record
-  SQLite store is intentionally limited to local development.
-- Add onboarding, listing management, multi-supplier RFQs, quote comparison at scale,
-  verification providers, admin moderation, and delegation management.
-- Add private uploads with explicit sharing authorization and technical acceptance
-  checks. Current delivery links do not validate file contents or transfer files.
-- Add hosted payments, authenticated provider webhooks, reconciliation, refund and
-  dispute resolution, background jobs, and operational monitoring.
-- Add remote MCP authorization and the narrow supplier A2A integration described in
-  the plan. The current adapter is stdio only.
+There are no payments, escrow, real fulfilment, external model SDKs, or automatic LLM execution. Any agent runtime capable of invoking commands can use the CLI. Actual image interpretation requires that runtime to pass downloaded images into a vision-capable model.
 
-These boundaries are deliberate: no public deployment or real purchases are
-enabled by the development bootstrap.
+Further documentation: [authorization](docs/AUTHORIZATION.md), [API](docs/api.md), [operations](docs/OPERATIONS.md), [testing](docs/TESTING.md).

@@ -221,7 +221,7 @@ def test_openapi_matches_every_json_endpoint_and_binary_exception():
                 key = next(item for item in operation["parameters"] if item["name"] == "Idempotency-Key")
                 assert key["required"] is True
                 assert key["schema"] == {"type": "string", "minLength": 8, "maxLength": 128}
-            if operation["operationId"] in ("approval_accept", "approval_reject"):
+            if operation["operationId"] in ("approval_accept", "approval_reject", "negotiations_guidance"):
                 for header in ("Origin", "X-CSRF-Token"):
                     assert next(item for item in operation["parameters"] if item["name"] == header)[
                         "required"

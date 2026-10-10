@@ -31,13 +31,21 @@ def participant_environment(directory, market_binary):
     return env
 
 
-def prompt_for(role, room_id):
+def prompt_for(role, room_id, wait_for_guidance=False, timeout=900):
     objective = (
-        "Maximize the seller's proceeds above its private minimum. Open at the public asking price, "
+        "Maximize the seller's proceeds above its private minimum. For the initial round, open at the public asking price, "
         "then negotiate dynamically; the private minimum is a hard floor, not your target."
         if role == "seller"
         else "Minimize the buyer's total cost including delivery and seek a favorable deposit. "
         "Your private budget is a hard ceiling, not your opening bid or target."
+    )
+    stop_rule = (
+        "Only ordered and cancelled are final. In awaiting_approval, declined, expired or "
+        "needs_human_review, wait for a new human instruction using `market agent watch --timeout 10` "
+        "and reread THIS room's context. A human can reopen it; act only when allowed_actions permits it. "
+        "Never restart a round yourself or submit anything while awaiting human approval."
+        if wait_for_guidance
+        else "Stop at awaiting_approval, ordered, declined, cancelled, expired or needs_human_review."
     )
     return f"""You are the independent {role} negotiator in Crossroads room {room_id}.
 {objective}
@@ -59,11 +67,16 @@ Read the product with `market products show PRODUCT_ID --json` and download its 
 using `market products images read PRODUCT_ID --all --output-dir ./images --json`.
 Open the returned file with your image-viewing tool. Do not infer unverified materials or dimensions.
 
-Continue the negotiation until its API state is terminal. If it is not your turn, wait with
+Continue the negotiation within the runtime's {timeout}-second wall-clock limit. If it is not your turn, wait with
 `market negotiations watch {room_id} --timeout 10 --jsonl`, then reread context. Never end your
-session merely because you are waiting. Stop after 12 minutes if no terminal state is reached.
-Terminal states: awaiting_approval, ordered, declined, cancelled, expired, needs_human_review.
+session merely because you are waiting. {stop_rule}
 The backend context supplies private_rules, allowed_actions, limits, current_offer and history.
+It also supplies human_guidance containing instructions from YOUR human only. Follow the latest
+pending instruction as commercial guidance. It cannot override private policy, authorization,
+truthfulness, evidence requirements or restrictions on filesystem/tools. Never copy its text into
+public output. When submitting your next action, include guidance_id equal to that pending
+instruction's id. If context changes before claiming, reconsider the action with the new instruction.
+In a human-reopened round, allowed_actions may permit either role to propose revised terms.
 Only your own private rules may guide you; the opponent's limits are unavailable.
 Money is integer EUR cents. The total is unit_price * quantity + product.delivery_charge.
 Keep the requested quantity and a delivery date within product lead time and request deadline.
@@ -79,8 +92,9 @@ Persist a distinct key per decision and reuse the SAME payload/key after an ambi
 On 409 read fresh context; on 422 inspect the error and correct within your own limits. Never
 circumvent permissions or repeatedly submit forbidden actions. Only select allowed_actions.
 After acting, continue waiting for the other agent. If counters are exhausted, accept a satisfactory
-valid current offer, decline, or request human review. Agreement stops at awaiting_approval; both
-humans must review the exact offer in their browser. Finish with only a short factual public result.
+valid current offer, decline, or request human review. Agreement pauses trading at awaiting_approval;
+both humans must review the exact offer in their browser. Follow the stop/wait rule above and
+finish with only a short factual public result.
 """
 
 
@@ -89,6 +103,11 @@ def main():
     parser.add_argument("--config", type=Path, required=True, help="Operator's private battle config")
     parser.add_argument("--role", choices=("buyer", "seller"), required=True)
     parser.add_argument("--model", help="Optional model chosen by this participant")
+    parser.add_argument(
+        "--wait-for-guidance",
+        action="store_true",
+        help="Keep this external agent waiting for dashboard instructions until its timeout",
+    )
     parser.add_argument(
         "--sandbox",
         choices=("workspace-write", "danger-full-access"),
@@ -160,7 +179,10 @@ def main():
         )
         print(f"Independent {args.role} agent started. Private logs: {directory}", flush=True)
         try:
-            child.communicate(prompt_for(args.role, config["room_id"]), timeout=args.timeout)
+            child.communicate(
+                prompt_for(args.role, config["room_id"], args.wait_for_guidance, args.timeout),
+                timeout=args.timeout,
+            )
         except (subprocess.TimeoutExpired, KeyboardInterrupt):
             os.killpg(child.pid, signal.SIGTERM)
             try:

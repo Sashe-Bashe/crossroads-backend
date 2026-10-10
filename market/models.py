@@ -135,6 +135,31 @@ class Offer(Base):
     __table_args__ = (UniqueConstraint("room_id", "version"),)
 
 
+class HumanGuidance(Base):
+    __tablename__ = "human_guidance"
+    id = Column(String, primary_key=True, default=uid)
+    room_id = Column(String, ForeignKey("negotiations.id"), nullable=False, index=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    role = Column(String, nullable=False)
+    instruction = Column(String(2000), nullable=False)
+    status = Column(String, default="pending", nullable=False)
+    run = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=now, nullable=False)
+    applied_at = Column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("role IN ('buyer','seller')"),
+        CheckConstraint("status IN ('pending','applied','superseded')"),
+        Index(
+            "ix_human_guidance_one_pending",
+            "room_id",
+            "workspace_id",
+            unique=True,
+            postgresql_where=(status == "pending"),
+        ),
+    )
+
+
 class Action(Base):
     __tablename__ = "actions"
     id = Column(String, primary_key=True, default=uid)

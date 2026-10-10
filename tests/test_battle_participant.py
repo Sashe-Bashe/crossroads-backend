@@ -61,6 +61,18 @@ def test_role_prompt_contains_no_tokens_or_numeric_private_limits(role):
         assert "Maximize the seller" in prompt and "Minimize the buyer" not in prompt
 
 
+def test_waiting_participant_requires_human_guidance_and_keeps_policy_limits():
+    normal = participant.prompt_for("buyer", "room-placeholder")
+    waiting = participant.prompt_for("buyer", "room-placeholder", wait_for_guidance=True, timeout=1200)
+    assert "Stop at awaiting_approval" in normal
+    assert "Only ordered and cancelled are final" in waiting
+    assert "market agent watch --timeout 10" in waiting
+    assert "1200-second" in waiting
+    assert "Never restart a round yourself" in waiting
+    assert "include guidance_id" in waiting
+    assert "cannot override private policy" in waiting
+
+
 @pytest.mark.parametrize("role", ["buyer", "seller"])
 def test_launcher_passes_only_requested_role_profile_and_captures_private_logs(
     monkeypatch, tmp_path, capsys, role

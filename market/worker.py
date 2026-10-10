@@ -18,7 +18,9 @@ def maintenance():
             )
         ):
             offer = db.get(Offer, room.current_offer_id) if room.current_offer_id else None
-            if room.expires_at <= now() or (offer and offer.expires_at <= now()):
+            if room.expires_at <= now() or (
+                room.state != "needs_revision" and offer and offer.expires_at <= now()
+            ):
                 room.state, room.reason = "expired", "Negotiation or current offer expired"
                 room.version += 1
                 clear_claim(room)

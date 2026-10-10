@@ -240,6 +240,8 @@ class ActionData(DTO):
     offer_version: int | None = None
     topic: Literal["specifications", "delivery", "images", "quantity"] | None = None
     message: str | None = None
+    role: Role | None = None
+    run: int | None = None
 
 
 class RoomActivity(DTO):
@@ -248,6 +250,16 @@ class RoomActivity(DTO):
     type: str
     data: ActionData
     at: datetime
+
+
+class HumanGuidance(DTO):
+    id: str
+    role: Role
+    instruction: str
+    status: Literal["pending", "applied", "superseded"]
+    run: int
+    created_at: datetime
+    applied_at: datetime | None
 
 
 class Room(DTO):
@@ -270,6 +282,10 @@ class Room(DTO):
     valid: bool
     invalid_reasons: list[str]
     activity: list[RoomActivity]
+    human_guidance: list[HumanGuidance] = Field(
+        description="Private guidance history belonging only to the selected workspace, newest first. Never share with the counterparty."
+    )
+    can_request_guidance: bool
     approval_url: str
 
 
@@ -367,6 +383,7 @@ class InboxItem(DTO):
     version: int
     can_act: bool
     context_path: str
+    pending_guidance_id: str | None
 
 
 T = TypeVar("T")
@@ -427,6 +444,7 @@ CONTRACTS = {
     "negotiations_context": ("context", NegotiationContext, False),
     "negotiations_claim": ("claim", Claim, False),
     "negotiations_act": ("action", ActionResult, False),
+    "negotiations_guidance": ("negotiation", Room, False),
     "negotiations_retry": ("negotiation", Room, False),
     "approval_status": ("negotiation", Room, False),
     "approval_accept": ("approval", ApprovalResult, False),
@@ -476,6 +494,7 @@ DESCRIPTIONS = {
     "negotiations_context": "Read a participant's room with only that party's private rules, current allowed actions and negotiation limits.",
     "negotiations_claim": "Claim the current role's turn for 180 seconds by default. Returns a secret claim_token and expected_version required for the action.",
     "negotiations_act": "Submit a structured, policy-checked action with the active claim_token, expected_version and stable Idempotency-Key. Agreement moves to human approval; it never creates an order directly.",
+    "negotiations_guidance": "An authorized human browser approver privately directs their own external agent to negotiate again. Requires CSRF, expected_version and Idempotency-Key. Starts a fresh bounded attempt on that role's turn, revokes current claims and approvals, and permanently invalidates the previous offer. Text is visible only to the requesting workspace. Agents must acknowledge their latest pending guidance ID on their next successful action. The API does not start or call an LLM.",
     "negotiations_retry": "Start a new bounded attempt for an expired, declined or review-stage room. Requires a buyer user credential; agents cannot retry. Existing offer history is retained.",
     "approval_status": "Read the participant-scoped room and the exact current offer's human approval status.",
     "approval_accept": "Approve the exact current offer using offer_id and expected_version. Both workspace approvals are required; the second approval atomically allocates stock and creates one order.",
@@ -509,6 +528,7 @@ IDEMPOTENT_OPERATIONS = {
     "requests_launch",
     "images_upload",
     "negotiations_act",
+    "negotiations_guidance",
 }
 
 
@@ -522,7 +542,8 @@ class ResourceRouter(APIRouter):
         public = name in ("health", "cli_login", "browser_login")
         extra = {**(kwargs.get("openapi_extra") or {})}
         extra["security"] = [] if public else [{"BearerAuth": []}, {"BrowserSession": []}]
-        if name in ("approval_accept", "approval_reject"):
+        browser_only = name in ("approval_accept", "approval_reject", "negotiations_guidance")
+        if browser_only:
             extra["security"] = [{"BrowserSession": []}]
         parameters = []
         if not public:
@@ -543,7 +564,7 @@ class ResourceRouter(APIRouter):
                 {
                     "name": "Origin",
                     "in": "header",
-                    "required": name in ("browser_login", "approval_accept", "approval_reject"),
+                    "required": name == "browser_login" or browser_only,
                     "schema": {"type": "string"},
                     "description": "Required for browser writes; must match a configured allowed origin.",
                 }
@@ -553,7 +574,7 @@ class ResourceRouter(APIRouter):
                     {
                         "name": "X-CSRF-Token",
                         "in": "header",
-                        "required": name in ("approval_accept", "approval_reject"),
+                        "required": browser_only,
                         "schema": {"type": "string"},
                         "description": "Required for browser writes; copy the readable market_csrf cookie. Bearer writes do not use CSRF.",
                     }

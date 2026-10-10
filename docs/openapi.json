@@ -6420,6 +6420,193 @@
         "x-object-label": "negotiation"
       }
     },
+    "/api/v1/negotiations/{room_id}/guidance": {
+      "post": {
+        "tags": [
+          "Negotiations"
+        ],
+        "summary": "Negotiations Guidance",
+        "description": "An authorized human browser approver privately directs their own external agent to negotiate again. Requires CSRF, expected_version and Idempotency-Key. Starts a fresh bounded attempt on that role's turn, revokes current claims and approvals, and permanently invalidates the previous offer. Text is visible only to the requesting workspace. Agents must acknowledge their latest pending guidance ID on their next successful action. The API does not start or call an LLM.\n\nReturns `negotiation` and `status_code` (200). All failures use `error` and the matching HTTP `status_code`. Requires an authorized workspace membership and applicable role/scopes.",
+        "operationId": "negotiations_guidance",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "description": "Required stable key for this logical write. Retry an identical request with the same key; a changed operation or body requires a new key."
+          },
+          {
+            "name": "X-Workspace-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Select a user membership. A workspace-bound agent cannot select another workspace."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required for browser writes; must match a configured allowed origin."
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required for browser writes; copy the readable market_csrf cookie. Bearer writes do not use CSRF."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuidanceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NegotiationsGuidanceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request or unsupported action.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Role, scope, workspace, browser approval or CSRF check failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not visible to this workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "HTTP method is not supported by this resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version, conflicting state, active claim or idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body or image exceeds the configured limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation, commercial policy or eligibility check failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. Retry after the current rate window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server failure. Details are not disclosed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          }
+        ],
+        "x-object-label": "negotiation"
+      }
+    },
     "/api/v1/approvals/{room_id}": {
       "get": {
         "tags": [
@@ -7758,6 +7945,32 @@
               }
             ],
             "title": "Message"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "buyer",
+                  "seller"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
           }
         },
         "additionalProperties": false,
@@ -7789,6 +8002,20 @@
             "maxLength": 200,
             "minLength": 20,
             "title": "Claim Token"
+          },
+          "guidance_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guidance Id",
+            "description": "The ID of your workspace's pending human guidance, required on the next successful action after reading it. Never echo the instruction text publicly."
           },
           "terms": {
             "anyOf": [
@@ -7890,6 +8117,32 @@
               }
             ],
             "title": "Message"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "buyer",
+                  "seller"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
           },
           "room_id": {
             "type": "string",
@@ -8829,6 +9082,29 @@
         ],
         "title": "GalleryInput"
       },
+      "GuidanceInput": {
+        "properties": {
+          "instruction": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Instruction",
+            "description": "Private direction to this workspace's external agent. Cannot override policies or authorize an order."
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "instruction",
+          "expected_version"
+        ],
+        "title": "GuidanceInput"
+      },
       "Health": {
         "properties": {
           "status": {
@@ -8874,6 +9150,68 @@
           "status_code"
         ],
         "title": "HealthResponse"
+      },
+      "HumanGuidance": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "buyer",
+              "seller"
+            ],
+            "title": "Role"
+          },
+          "instruction": {
+            "type": "string",
+            "title": "Instruction"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "applied",
+              "superseded"
+            ],
+            "title": "Status"
+          },
+          "run": {
+            "type": "integer",
+            "title": "Run"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "instruction",
+          "status",
+          "run",
+          "created_at",
+          "applied_at"
+        ],
+        "title": "HumanGuidance"
       },
       "ImageAsset": {
         "properties": {
@@ -9126,6 +9464,17 @@
           "context_path": {
             "type": "string",
             "title": "Context Path"
+          },
+          "pending_guidance_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Guidance Id"
           }
         },
         "additionalProperties": false,
@@ -9136,7 +9485,8 @@
           "next_role",
           "version",
           "can_act",
-          "context_path"
+          "context_path",
+          "pending_guidance_id"
         ],
         "title": "InboxItem"
       },
@@ -9715,6 +10065,18 @@
             "type": "array",
             "title": "Activity"
           },
+          "human_guidance": {
+            "items": {
+              "$ref": "#/components/schemas/HumanGuidance"
+            },
+            "type": "array",
+            "title": "Human Guidance",
+            "description": "Private guidance history belonging only to the selected workspace, newest first. Never share with the counterparty."
+          },
+          "can_request_guidance": {
+            "type": "boolean",
+            "title": "Can Request Guidance"
+          },
           "approval_url": {
             "type": "string",
             "title": "Approval Url"
@@ -9782,6 +10144,8 @@
           "valid",
           "invalid_reasons",
           "activity",
+          "human_guidance",
+          "can_request_guidance",
           "approval_url",
           "role",
           "private_rules",
@@ -9870,6 +10234,26 @@
           "status_code"
         ],
         "title": "NegotiationsContextResponse"
+      },
+      "NegotiationsGuidanceResponse": {
+        "properties": {
+          "negotiation": {
+            "$ref": "#/components/schemas/Room"
+          },
+          "status_code": {
+            "type": "integer",
+            "const": 200,
+            "title": "Status Code",
+            "description": "Equals the HTTP response status."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "negotiation",
+          "status_code"
+        ],
+        "title": "NegotiationsGuidanceResponse"
       },
       "NegotiationsResponse": {
         "properties": {
@@ -11331,6 +11715,18 @@
             "type": "array",
             "title": "Activity"
           },
+          "human_guidance": {
+            "items": {
+              "$ref": "#/components/schemas/HumanGuidance"
+            },
+            "type": "array",
+            "title": "Human Guidance",
+            "description": "Private guidance history belonging only to the selected workspace, newest first. Never share with the counterparty."
+          },
+          "can_request_guidance": {
+            "type": "boolean",
+            "title": "Can Request Guidance"
+          },
           "approval_url": {
             "type": "string",
             "title": "Approval Url"
@@ -11358,6 +11754,8 @@
           "valid",
           "invalid_reasons",
           "activity",
+          "human_guidance",
+          "can_request_guidance",
           "approval_url"
         ],
         "title": "Room"

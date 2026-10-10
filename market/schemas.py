@@ -118,6 +118,12 @@ class ActionInput(Strict):
     ]
     expected_version: int = Field(ge=0)
     claim_token: str = Field(min_length=20, max_length=200)
+    guidance_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=50,
+        description="The ID of your workspace's pending human guidance, required on the next successful action after reading it. Never echo the instruction text publicly.",
+    )
     terms: Terms | None = None
     offer_id: str | None = Field(default=None, max_length=50)
     topic: Literal["specifications", "delivery", "images", "quantity"] | None = None
@@ -142,6 +148,15 @@ class ActionInput(Strict):
 
 class ApprovalInput(Strict):
     offer_id: str = Field(min_length=1, max_length=50)
+    expected_version: int = Field(ge=0)
+
+
+class GuidanceInput(Strict):
+    instruction: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Private direction to this workspace's external agent. Cannot override policies or authorize an order.",
+    )
     expected_version: int = Field(ge=0)
 
 

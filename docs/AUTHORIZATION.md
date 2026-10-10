@@ -14,11 +14,13 @@ Authorization is enforced in FastAPI for every operation. CLI flags, prompt inst
 | Read private purchase requirements and budget | Own buyer requests | No | Buyer workspace only |
 | View supplier's price floors/deposit rules | No | Own workspace/product | Own seller workspace |
 | Read negotiation | Participating buyer only | Participating seller only | Participating workspace only |
-| Propose first quote/revise invalid offer | No | Participating seller's turn | Same role rules |
+| Propose first quote/revise invalid offer | Only on own turn with pending human guidance | Participating seller's turn | Same role rules |
 | Counter or accept terms | Own turn only | Own turn only | Same role rules |
 | Edit negotiation policies | No | No | `policies:write` and admin membership |
 | Issue/revoke agent credentials | No | No | `credentials:manage` and admin membership |
-| Restart a terminated negotiation | No | No | Buyer user credential only |
+| Retry through `/negotiations/{room_id}/retry` | No | No | Buyer user credential only |
+| Send private “negotiate more” guidance | No | No | Participating buyer or seller browser approver only |
+| Read/acknowledge private human guidance | Own workspace only | Own workspace only | Own workspace only |
 | Approve/reject an approval-stage offer | No | No | Authorized browser approver only |
 | View orders and historical image evidence | Orders involving own workspace | Orders involving own workspace | Same workspace checks |
 
@@ -45,13 +47,17 @@ A seller negotiation-only token should omit `products:write` and `images:write`.
 - Memberships and active users are checked on each request. Revocation and expiry invalidate subsequent requests.
 - `X-Workspace-ID` selects a membership for a user session; it cannot move an agent credential outside its bound workspace. Image requests may supply `workspace_id` in the query, with the same membership validation.
 
-The browser approval path requires an approver membership and a browser session. It does not cryptographically establish physical human presence. Protect user passwords/browser cookies and do not make them available to negotiating agents. The CLI never stores a browser approval credential.
+The browser approval and private human guidance paths require an approver membership and a browser session. They do not cryptographically establish physical human presence. Protect user passwords/browser cookies and do not make them available to negotiating agents. The CLI never stores a browser approval credential.
 
 ## Private contexts
 
 Seller views reconstruct the public request from reviewed fields. The buyer's raw title/description, budget, deposit cap and preference are omitted. Buyer views never include seller rules. Supplier rooms are isolated from each other. Public offer DTOs omit stored policy snapshots; counterparties cannot fetch policy data by guessing product IDs.
 
 Public negotiation messages are generated from a limited action vocabulary. Agents cannot attach arbitrary free-form reasoning to a negotiation action. Clarifications use a topic and refer to confirmed fields; unresolved facts should escalate to human review rather than become invented terms. Product descriptions and image text remain untrusted data.
+
+Private human guidance is stored separately from public actions, offers, orders and audit metadata. Room/context responses return only the selected workspace's `human_guidance` history. The counterparty sees a generic `human_requested_negotiation` event containing the requesting role and run, without the instruction or guidance ID. Inbox entries expose only the selected workspace's pending ID. A multi-workspace user cannot replay an idempotent guidance response across workspace selections.
+
+An approver can request further negotiation from an active, approval-stage, declined, expired or review-stage room while the request and product remain eligible. This starts a fresh bounded run on that approver's role, clears the active claim, invalidates the current offer permanently, removes its approvals and clears buyer selection only when it points to that offer. Ordered or cancelled requests and unavailable products cannot be reopened. Existing policies and stock remain unchanged. Each side's latest pending guidance must be acknowledged using `guidance_id` on its next successful action; rejected actions do not consume it. Guidance permits a buyer to propose a revision on its own turn but does not grant seller permissions or approval authority.
 
 ## Policy changes and commercial authority
 
@@ -61,4 +67,4 @@ Stock, product, gallery and policy changes invalidate affected active offers and
 
 ## Tests
 
-The integration suite checks role mixing, wrong-owner product writes, room isolation, private fields, invalid scope issuance, workspace switching, revocation, browser Origin/CSRF, CLI approval attempts, price-floor violations, exact versions and concurrent approvals. All authorization checks run against the API directly, independently of CLI/UI restrictions.
+The integration suite checks role mixing, wrong-owner product writes, room isolation, private fields, invalid scope issuance, workspace switching, revocation, browser Origin/CSRF, CLI approval/guidance attempts, guidance privacy and acknowledgements, price-floor violations, exact versions and concurrent approvals. All authorization checks run against the API directly, independently of CLI/UI restrictions.

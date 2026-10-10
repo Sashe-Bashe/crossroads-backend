@@ -140,3 +140,8 @@ credentials. Declining or requesting human review is also a valid agent outcome.
 
 Leave the application running with `docker compose up -d`. Existing data
 persists; no reset, seed or preparation command is needed to view the result.
+
+To request another round, use **Negotiate more** in the dashboard and send your
+agent a private instruction. The previous agreement needs new terms and both
+human approvals again. Your external agent must still be connected or restarted;
+the dashboard does not host its model. See [the guidance guide](NEGOTIATE_MORE.md).

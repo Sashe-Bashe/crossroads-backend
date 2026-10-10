@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     offer_hours: int = 24
     max_counteroffers: int = 3
     max_clarifications: int = 4
+    max_conversation_turns: int = 12
     demo_password: str = "local-market-demo"
     demo_enabled: bool = False
 

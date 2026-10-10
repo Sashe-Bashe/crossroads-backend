@@ -13,6 +13,11 @@ does not choose, host or launch an LLM.
    emphasize the confirmed delivery schedule.”
 4. Select **Send to my agent**. Your instruction appears in your private history.
 
+If **Your agent needs your input** is shown, answer its private question through
+this same form. The answer is sent to your own agent, not posted in the shared
+conversation. Required brief changes and policy changes remain separate owner
+CLI operations. See the [conversation guide](CONVERSATION.md).
+
 Sending starts a new bounded negotiation round and gives your side the first
 turn. It clears previous approvals and invalidates the previous offer for
 approval, while retaining the offer history. The agent must propose new terms;

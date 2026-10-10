@@ -224,6 +224,60 @@ class Approval(DTO):
     at: datetime
 
 
+class RequirementEvidence(DTO):
+    source: Literal["offer", "product", "request"]
+    path: str
+    value: str | int | bool
+
+
+class Requirement(DTO):
+    id: str
+    label: str
+    kind: Literal["hard", "preference"]
+    field: Literal[
+        "quantity",
+        "material",
+        "stackable",
+        "destination",
+        "delivery_date",
+        "total",
+        "deposit_percent",
+        "unit_price",
+        "unsupported",
+    ]
+    operator: Literal["eq", "lte", "gte"]
+    value: str | int | bool | None
+    shareable: bool
+    resolution: Literal["open", "waived"]
+    resolution_note: str | None = None
+    status: Literal["met", "unmet", "unverified", "waived"]
+    evidence: list[RequirementEvidence]
+    blocks_agreement: bool
+
+
+class BusinessBrief(DTO):
+    version: int
+    goals: str
+    shareable_needs: str
+    requirements: list[Requirement]
+
+
+class SharedBrief(DTO):
+    role: Role
+    version: int
+    shareable_needs: str
+    requirements: list[Requirement]
+
+
+class HumanQuestion(DTO):
+    id: str
+    question: str
+    status: Literal["pending", "answered"]
+    created_at: datetime
+    answered_at: datetime | None
+    answer_guidance_id: str | None
+
+
 class Offer(DTO):
     id: str
     version: int
@@ -233,6 +287,8 @@ class Offer(DTO):
     expires_at: datetime
     created_at: datetime
     approvals: list[Approval]
+    private_brief_review: BusinessBrief | None = None
+    shared_brief_review: list[SharedBrief] = Field(default_factory=list)
 
 
 class ActionData(DTO):
@@ -242,6 +298,9 @@ class ActionData(DTO):
     message: str | None = None
     role: Role | None = None
     run: int | None = None
+    purpose: Literal["question", "answer", "tradeoff", "explanation"] | None = None
+    reply_to_action_id: str | None = None
+    image_ids: list[str] = Field(default_factory=list)
 
 
 class RoomActivity(DTO):
@@ -250,6 +309,7 @@ class RoomActivity(DTO):
     type: str
     data: ActionData
     at: datetime
+    run: int
 
 
 class HumanGuidance(DTO):
@@ -286,6 +346,11 @@ class Room(DTO):
         description="Private guidance history belonging only to the selected workspace, newest first. Never share with the counterparty."
     )
     can_request_guidance: bool
+    private_brief: BusinessBrief
+    shared_briefs: list[SharedBrief]
+    human_questions: list[HumanQuestion]
+    can_edit_brief: bool
+    requirement_blockers: list[str]
     approval_url: str
 
 
@@ -309,6 +374,9 @@ class BuyerContextRules(BuyerPolicy):
 class NegotiationLimits(DTO):
     counteroffers_per_side: int
     clarification_turns: int
+    conversation_turns: int
+    conversation_turns_remaining: int
+    offer_actions_remaining: int
 
 
 class NegotiationContext(Room):
@@ -345,6 +413,8 @@ class Order(DTO):
     buyer: str
     seller: str
     status: Literal["confirmed_demo"]
+    private_brief_review: BusinessBrief | None = None
+    shared_brief_review: list[SharedBrief] = Field(default_factory=list)
 
 
 class ApprovalResult(DTO):
@@ -442,6 +512,9 @@ CONTRACTS = {
     "negotiations": ("negotiations", Page[Room], False),
     "negotiations_show": ("negotiation", Room, False),
     "negotiations_context": ("context", NegotiationContext, False),
+    "negotiations_messages": ("messages", Page[RoomActivity], False),
+    "negotiations_brief": ("brief", BusinessBrief, False),
+    "negotiations_brief_update": ("brief", BusinessBrief, False),
     "negotiations_claim": ("claim", Claim, False),
     "negotiations_act": ("action", ActionResult, False),
     "negotiations_guidance": ("negotiation", Room, False),
@@ -491,9 +564,12 @@ DESCRIPTIONS = {
     "requests_compare": "Compare the buyer's current supplier offers and identify the lowest price and best fit for the private preference.",
     "negotiations": "List only rooms in which the selected workspace is a buyer or seller participant. Seller-visible requests omit private buyer fields.",
     "negotiations_show": "Read a participant-scoped room, immutable offers, approvals, product evidence and activity.",
-    "negotiations_context": "Read a participant's room with only that party's private rules, current allowed actions and negotiation limits.",
+    "negotiations_context": "Read participant dialogue, explicitly shared needs and only the selected workspace's private rules, brief, requirement blockers, guidance and owner questions. Includes allowed actions and remaining conversation/offer allowances. Offer review snapshots preserve the exact needs considered when that offer was created.",
+    "negotiations_messages": "Read paginated public dialogue and offer explanations for a participant room, optionally filtered by run. Private owner questions, briefs and guidance are excluded.",
+    "negotiations_brief": "Read only the selected workspace's private business goals and server-evaluated needs. Agents may read but cannot edit or waive needs.",
+    "negotiations_brief_update": "An owner user (browser or CLI, never agent) replaces its versioned private brief and explicitly shareable needs. Requires expected_version, expected_brief_version and Idempotency-Key. Starts a new bounded attempt and invalidates prior claims, offers and approvals. Unsupported hard needs block agreement until an owner explicitly resolves them. This operation does not answer private questions or call an LLM.",
     "negotiations_claim": "Claim the current role's turn for 180 seconds by default. Returns a secret claim_token and expected_version required for the action.",
-    "negotiations_act": "Submit a structured, policy-checked action with the active claim_token, expected_version and stable Idempotency-Key. Agreement moves to human approval; it never creates an order directly.",
+    "negotiations_act": "Submit dialogue, structured terms, own-offer revisions or private owner questions using an active claim, expected_version, pending guidance_id and stable Idempotency-Key. Dialogue is bounded and cannot create contractual terms. Hard unmet/unverified needs block acceptance; agents cannot waive them. Accepting the exact current counterparty offer moves to both human approvals and never creates an order directly.",
     "negotiations_guidance": "An authorized human browser approver privately directs their own external agent to negotiate again. Requires CSRF, expected_version and Idempotency-Key. Starts a fresh bounded attempt on that role's turn, revokes current claims and approvals, and permanently invalidates the previous offer. Text is visible only to the requesting workspace. Agents must acknowledge their latest pending guidance ID on their next successful action. The API does not start or call an LLM.",
     "negotiations_retry": "Start a new bounded attempt for an expired, declined or review-stage room. Requires a buyer user credential; agents cannot retry. Existing offer history is retained.",
     "approval_status": "Read the participant-scoped room and the exact current offer's human approval status.",
@@ -529,6 +605,7 @@ IDEMPOTENT_OPERATIONS = {
     "images_upload",
     "negotiations_act",
     "negotiations_guidance",
+    "negotiations_brief_update",
 }
 
 

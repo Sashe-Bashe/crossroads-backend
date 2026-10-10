@@ -74,6 +74,25 @@ def test_waiting_participant_requires_human_guidance_and_keeps_policy_limits():
 
 
 @pytest.mark.parametrize("role", ["buyer", "seller"])
+def test_conversation_prompt_preserves_owner_needs_and_exact_offer_authority(role):
+    prompt = participant.prompt_for(role, "room-placeholder")
+    for instruction in (
+        "private_brief",
+        "shared_briefs",
+        "owner-authorized shareable needs",
+        "agents cannot waive requirements or edit briefs",
+        "Discard your decision",
+        "brief version",
+        "reply_to_action_id",
+        "propose/counter/revise",
+        "human_question for YOUR human only",
+        "natural-language assent is not an acceptance",
+        "both humans must review the exact offer",
+    ):
+        assert instruction in prompt
+
+
+@pytest.mark.parametrize("role", ["buyer", "seller"])
 def test_launcher_passes_only_requested_role_profile_and_captures_private_logs(
     monkeypatch, tmp_path, capsys, role
 ):

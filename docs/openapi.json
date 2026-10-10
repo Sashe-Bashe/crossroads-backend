@@ -5747,7 +5747,7 @@
           "Negotiations"
         ],
         "summary": "Negotiations Context",
-        "description": "Read a participant's room with only that party's private rules, current allowed actions and negotiation limits.\n\nReturns `context` and `status_code` (200). All failures use `error` and the matching HTTP `status_code`. Requires an authorized workspace membership and applicable role/scopes.",
+        "description": "Read participant dialogue, explicitly shared needs and only the selected workspace's private rules, brief, requirement blockers, guidance and owner questions. Includes allowed actions and remaining conversation/offer allowances. Offer review snapshots preserve the exact needs considered when that offer was created.\n\nReturns `context` and `status_code` (200). All failures use `error` and the matching HTTP `status_code`. Requires an authorized workspace membership and applicable role/scopes.",
         "operationId": "negotiations_context",
         "parameters": [
           {
@@ -6061,13 +6061,543 @@
         "x-object-label": "claim"
       }
     },
+    "/api/v1/negotiations/{room_id}/messages": {
+      "get": {
+        "tags": [
+          "Negotiations"
+        ],
+        "summary": "Negotiations Messages",
+        "description": "Read paginated public dialogue and offer explanations for a participant room, optionally filtered by run. Private owner questions, briefs and guidance are excluded.\n\nReturns `messages` and `status_code` (200). All failures use `error` and the matching HTTP `status_code`. Requires an authorized workspace membership and applicable role/scopes.",
+        "operationId": "negotiations_messages",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "X-Workspace-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Select a user membership. A workspace-bound agent cannot select another workspace."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NegotiationsMessagesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request or unsupported action.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Role, scope, workspace, browser approval or CSRF check failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not visible to this workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "HTTP method is not supported by this resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version, conflicting state, active claim or idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body or image exceeds the configured limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation, commercial policy or eligibility check failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. Retry after the current rate window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server failure. Details are not disclosed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "x-object-label": "messages"
+      }
+    },
+    "/api/v1/negotiations/{room_id}/brief": {
+      "get": {
+        "tags": [
+          "Negotiations"
+        ],
+        "summary": "Negotiations Brief",
+        "description": "Read only the selected workspace's private business goals and server-evaluated needs. Agents may read but cannot edit or waive needs.\n\nReturns `brief` and `status_code` (200). All failures use `error` and the matching HTTP `status_code`. Requires an authorized workspace membership and applicable role/scopes.",
+        "operationId": "negotiations_brief",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "X-Workspace-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Select a user membership. A workspace-bound agent cannot select another workspace."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NegotiationsBriefResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request or unsupported action.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Role, scope, workspace, browser approval or CSRF check failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not visible to this workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "HTTP method is not supported by this resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version, conflicting state, active claim or idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body or image exceeds the configured limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation, commercial policy or eligibility check failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. Retry after the current rate window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server failure. Details are not disclosed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "x-object-label": "brief"
+      },
+      "put": {
+        "tags": [
+          "Negotiations"
+        ],
+        "summary": "Negotiations Brief Update",
+        "description": "An owner user (browser or CLI, never agent) replaces its versioned private brief and explicitly shareable needs. Requires expected_version, expected_brief_version and Idempotency-Key. Starts a new bounded attempt and invalidates prior claims, offers and approvals. Unsupported hard needs block agreement until an owner explicitly resolves them. This operation does not answer private questions or call an LLM.\n\nReturns `brief` and `status_code` (200). All failures use `error` and the matching HTTP `status_code`. Requires an authorized workspace membership and applicable role/scopes.",
+        "operationId": "negotiations_brief_update",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "description": "Required stable key for this logical write. Retry an identical request with the same key; a changed operation or body requires a new key."
+          },
+          {
+            "name": "X-Workspace-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Select a user membership. A workspace-bound agent cannot select another workspace."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required for browser writes; must match a configured allowed origin."
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required for browser writes; copy the readable market_csrf cookie. Bearer writes do not use CSRF."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BriefInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NegotiationsBriefUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request or unsupported action.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Role, scope, workspace, browser approval or CSRF check failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource does not exist or is not visible to this workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "HTTP method is not supported by this resource.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale version, conflicting state, active claim or idempotency conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body or image exceeds the configured limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation, commercial policy or eligibility check failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded. Retry after the current rate window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server failure. Details are not disclosed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "x-object-label": "brief"
+      }
+    },
     "/api/v1/negotiations/{room_id}/actions": {
       "post": {
         "tags": [
           "Negotiations"
         ],
         "summary": "Negotiations Act",
-        "description": "Submit a structured, policy-checked action with the active claim_token, expected_version and stable Idempotency-Key. Agreement moves to human approval; it never creates an order directly.\n\nReturns `action` and `status_code` (200). All failures use `error` and the matching HTTP `status_code`. Requires an authorized workspace membership and applicable role/scopes.",
+        "description": "Submit dialogue, structured terms, own-offer revisions or private owner questions using an active claim, expected_version, pending guidance_id and stable Idempotency-Key. Dialogue is bounded and cannot create contractual terms. Hard unmet/unverified needs block acceptance; agents cannot waive them. Accepting the exact current counterparty offer moves to both human approvals and never creates an order directly.\n\nReturns `action` and `status_code` (200). All failures use `error` and the matching HTTP `status_code`. Requires an authorized workspace membership and applicable role/scopes.",
         "operationId": "negotiations_act",
         "parameters": [
           {
@@ -7971,6 +8501,41 @@
               }
             ],
             "title": "Run"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "question",
+                  "answer",
+                  "tradeoff",
+                  "explanation"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "reply_to_action_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To Action Id"
+          },
+          "image_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Image Ids"
           }
         },
         "additionalProperties": false,
@@ -7984,6 +8549,8 @@
             "enum": [
               "propose",
               "counter",
+              "revise",
+              "message",
               "accept",
               "decline",
               "request_clarification",
@@ -8055,6 +8622,70 @@
               }
             ],
             "title": "Topic"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "question",
+                  "answer",
+                  "tradeoff",
+                  "explanation"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "reply_to_action_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To Action Id"
+          },
+          "image_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "title": "Image Ids"
+          },
+          "human_question": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Human Question"
           }
         },
         "additionalProperties": false,
@@ -8143,6 +8774,41 @@
               }
             ],
             "title": "Run"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "question",
+                  "answer",
+                  "tradeoff",
+                  "explanation"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "reply_to_action_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To Action Id"
+          },
+          "image_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Image Ids"
           },
           "room_id": {
             "type": "string",
@@ -8467,6 +9133,47 @@
         ],
         "title": "Body_images_upload"
       },
+      "BriefInput": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "expected_brief_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Brief Version"
+          },
+          "goals": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Goals",
+            "default": ""
+          },
+          "shareable_needs": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Shareable Needs",
+            "default": ""
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementInput"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Requirements"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "expected_brief_version"
+        ],
+        "title": "BriefInput"
+      },
       "BrowserLoginResponse": {
         "properties": {
           "session": {
@@ -8486,6 +9193,38 @@
           "status_code"
         ],
         "title": "BrowserLoginResponse"
+      },
+      "BusinessBrief": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "goals": {
+            "type": "string",
+            "title": "Goals"
+          },
+          "shareable_needs": {
+            "type": "string",
+            "title": "Shareable Needs"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/Requirement"
+            },
+            "type": "array",
+            "title": "Requirements"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "goals",
+          "shareable_needs",
+          "requirements"
+        ],
+        "title": "BusinessBrief"
       },
       "BuyerContextRules": {
         "properties": {
@@ -9212,6 +9951,65 @@
           "applied_at"
         ],
         "title": "HumanGuidance"
+      },
+      "HumanQuestion": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "answered"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "answered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered At"
+          },
+          "answer_guidance_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Guidance Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "status",
+          "created_at",
+          "answered_at",
+          "answer_guidance_id"
+        ],
+        "title": "HumanQuestion"
       },
       "ImageAsset": {
         "properties": {
@@ -10077,6 +10875,34 @@
             "type": "boolean",
             "title": "Can Request Guidance"
           },
+          "private_brief": {
+            "$ref": "#/components/schemas/BusinessBrief"
+          },
+          "shared_briefs": {
+            "items": {
+              "$ref": "#/components/schemas/SharedBrief"
+            },
+            "type": "array",
+            "title": "Shared Briefs"
+          },
+          "human_questions": {
+            "items": {
+              "$ref": "#/components/schemas/HumanQuestion"
+            },
+            "type": "array",
+            "title": "Human Questions"
+          },
+          "can_edit_brief": {
+            "type": "boolean",
+            "title": "Can Edit Brief"
+          },
+          "requirement_blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requirement Blockers"
+          },
           "approval_url": {
             "type": "string",
             "title": "Approval Url"
@@ -10146,6 +10972,11 @@
           "activity",
           "human_guidance",
           "can_request_guidance",
+          "private_brief",
+          "shared_briefs",
+          "human_questions",
+          "can_edit_brief",
+          "requirement_blockers",
           "approval_url",
           "role",
           "private_rules",
@@ -10165,13 +10996,28 @@
           "clarification_turns": {
             "type": "integer",
             "title": "Clarification Turns"
+          },
+          "conversation_turns": {
+            "type": "integer",
+            "title": "Conversation Turns"
+          },
+          "conversation_turns_remaining": {
+            "type": "integer",
+            "title": "Conversation Turns Remaining"
+          },
+          "offer_actions_remaining": {
+            "type": "integer",
+            "title": "Offer Actions Remaining"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "counteroffers_per_side",
-          "clarification_turns"
+          "clarification_turns",
+          "conversation_turns",
+          "conversation_turns_remaining",
+          "offer_actions_remaining"
         ],
         "title": "NegotiationLimits"
       },
@@ -10194,6 +11040,46 @@
           "status_code"
         ],
         "title": "NegotiationsActResponse"
+      },
+      "NegotiationsBriefResponse": {
+        "properties": {
+          "brief": {
+            "$ref": "#/components/schemas/BusinessBrief"
+          },
+          "status_code": {
+            "type": "integer",
+            "const": 200,
+            "title": "Status Code",
+            "description": "Equals the HTTP response status."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "brief",
+          "status_code"
+        ],
+        "title": "NegotiationsBriefResponse"
+      },
+      "NegotiationsBriefUpdateResponse": {
+        "properties": {
+          "brief": {
+            "$ref": "#/components/schemas/BusinessBrief"
+          },
+          "status_code": {
+            "type": "integer",
+            "const": 200,
+            "title": "Status Code",
+            "description": "Equals the HTTP response status."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "brief",
+          "status_code"
+        ],
+        "title": "NegotiationsBriefUpdateResponse"
       },
       "NegotiationsClaimResponse": {
         "properties": {
@@ -10254,6 +11140,26 @@
           "status_code"
         ],
         "title": "NegotiationsGuidanceResponse"
+      },
+      "NegotiationsMessagesResponse": {
+        "properties": {
+          "messages": {
+            "$ref": "#/components/schemas/Page_RoomActivity_"
+          },
+          "status_code": {
+            "type": "integer",
+            "const": 200,
+            "title": "Status Code",
+            "description": "Equals the HTTP response status."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "messages",
+          "status_code"
+        ],
+        "title": "NegotiationsMessagesResponse"
       },
       "NegotiationsResponse": {
         "properties": {
@@ -10355,6 +11261,23 @@
             },
             "type": "array",
             "title": "Approvals"
+          },
+          "private_brief_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shared_brief_review": {
+            "items": {
+              "$ref": "#/components/schemas/SharedBrief"
+            },
+            "type": "array",
+            "title": "Shared Brief Review"
           }
         },
         "additionalProperties": false,
@@ -10413,6 +11336,23 @@
             "type": "string",
             "const": "confirmed_demo",
             "title": "Status"
+          },
+          "private_brief_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shared_brief_review": {
+            "items": {
+              "$ref": "#/components/schemas/SharedBrief"
+            },
+            "type": "array",
+            "title": "Shared Brief Review"
           }
         },
         "additionalProperties": false,
@@ -10566,6 +11506,38 @@
           "limit"
         ],
         "title": "Page[PurchaseRequest]"
+      },
+      "Page_RoomActivity_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoomActivity"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "offset",
+          "limit"
+        ],
+        "title": "Page[RoomActivity]"
       },
       "Page_Room_": {
         "properties": {
@@ -11576,6 +12548,269 @@
         ],
         "title": "RequestsUpdateResponse"
       },
+      "Requirement": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hard",
+              "preference"
+            ],
+            "title": "Kind"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "quantity",
+              "material",
+              "stackable",
+              "destination",
+              "delivery_date",
+              "total",
+              "deposit_percent",
+              "unit_price",
+              "unsupported"
+            ],
+            "title": "Field"
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "eq",
+              "lte",
+              "gte"
+            ],
+            "title": "Operator"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "shareable": {
+            "type": "boolean",
+            "title": "Shareable"
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "open",
+              "waived"
+            ],
+            "title": "Resolution"
+          },
+          "resolution_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Note"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "met",
+              "unmet",
+              "unverified",
+              "waived"
+            ],
+            "title": "Status"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementEvidence"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "blocks_agreement": {
+            "type": "boolean",
+            "title": "Blocks Agreement"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "kind",
+          "field",
+          "operator",
+          "value",
+          "shareable",
+          "resolution",
+          "status",
+          "evidence",
+          "blocks_agreement"
+        ],
+        "title": "Requirement"
+      },
+      "RequirementEvidence": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "offer",
+              "product",
+              "request"
+            ],
+            "title": "Source"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "path",
+          "value"
+        ],
+        "title": "RequirementEvidence"
+      },
+      "RequirementInput": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "hard",
+              "preference"
+            ],
+            "title": "Kind"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "quantity",
+              "material",
+              "stackable",
+              "destination",
+              "delivery_date",
+              "total",
+              "deposit_percent",
+              "unit_price",
+              "unsupported"
+            ],
+            "title": "Field"
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "eq",
+              "lte",
+              "gte"
+            ],
+            "title": "Operator",
+            "default": "eq"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "shareable": {
+            "type": "boolean",
+            "title": "Shareable",
+            "default": false
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "open",
+              "waived"
+            ],
+            "title": "Resolution",
+            "default": "open"
+          },
+          "resolution_note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000,
+                "minLength": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "kind",
+          "field"
+        ],
+        "title": "RequirementInput"
+      },
       "RevokedCredential": {
         "properties": {
           "id": {
@@ -11727,6 +12962,34 @@
             "type": "boolean",
             "title": "Can Request Guidance"
           },
+          "private_brief": {
+            "$ref": "#/components/schemas/BusinessBrief"
+          },
+          "shared_briefs": {
+            "items": {
+              "$ref": "#/components/schemas/SharedBrief"
+            },
+            "type": "array",
+            "title": "Shared Briefs"
+          },
+          "human_questions": {
+            "items": {
+              "$ref": "#/components/schemas/HumanQuestion"
+            },
+            "type": "array",
+            "title": "Human Questions"
+          },
+          "can_edit_brief": {
+            "type": "boolean",
+            "title": "Can Edit Brief"
+          },
+          "requirement_blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requirement Blockers"
+          },
           "approval_url": {
             "type": "string",
             "title": "Approval Url"
@@ -11756,6 +13019,11 @@
           "activity",
           "human_guidance",
           "can_request_guidance",
+          "private_brief",
+          "shared_briefs",
+          "human_questions",
+          "can_edit_brief",
+          "requirement_blockers",
           "approval_url"
         ],
         "title": "Room"
@@ -11785,6 +13053,10 @@
             "type": "string",
             "format": "date-time",
             "title": "At"
+          },
+          "run": {
+            "type": "integer",
+            "title": "Run"
           }
         },
         "additionalProperties": false,
@@ -11794,7 +13066,8 @@
           "role",
           "type",
           "data",
-          "at"
+          "at",
+          "run"
         ],
         "title": "RoomActivity"
       },
@@ -11999,6 +13272,42 @@
           "ok"
         ],
         "title": "SessionResult"
+      },
+      "SharedBrief": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "buyer",
+              "seller"
+            ],
+            "title": "Role"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "shareable_needs": {
+            "type": "string",
+            "title": "Shareable Needs"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/Requirement"
+            },
+            "type": "array",
+            "title": "Requirements"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role",
+          "version",
+          "shareable_needs",
+          "requirements"
+        ],
+        "title": "SharedBrief"
       },
       "StockInput": {
         "properties": {

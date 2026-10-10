@@ -323,7 +323,8 @@ def test_pre_upgrade_action_fingerprint_remains_replayable(system):
     response = client.post(path + "/actions", headers=seller, json=payload)
     assert response.status_code == 200
     legacy = ActionInput.model_validate(payload).model_dump(mode="json")
-    del legacy["guidance_id"]
+    for field in ("guidance_id", "message", "purpose", "reply_to_action_id", "image_ids", "human_question"):
+        del legacy[field]
     with factory() as db:
         stored = db.scalar(select(Action).where(Action.room_id == room["id"]))
         assert stored.request_hash == digest(json.dumps(legacy, sort_keys=True))
@@ -413,12 +414,24 @@ def test_migration_adds_guidance_to_existing_commerce_without_reset(system):
     migration = runpy.run_path(
         str(Path(__file__).resolve().parents[1] / "alembic/versions/8f2b7c19a4d0_private_human_guidance.py")
     )
+    conversation_migration = runpy.run_path(
+        str(
+            Path(__file__).resolve().parents[1]
+            / "alembic/versions/4d9a80cb6f21_conversation_and_business_needs.py"
+        )
+    )
     # The fixture's schema translation keeps both migration directions isolated
     # from the running demo, just like every HTTP integration test.
     with factory.begin() as db:
-        with Operations.context(MigrationContext.configure(db.connection())):
+        connection = db.connection()
+        schema = connection.get_execution_options()["schema_translate_map"][None]
+        assert schema.startswith("test_") and schema.replace("_", "").isalnum()
+        connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
+        with Operations.context(MigrationContext.configure(connection)):
+            conversation_migration["downgrade"]()
             migration["downgrade"]()
             migration["upgrade"]()
+            conversation_migration["upgrade"]()
     fresh = read_room(client, buyer, room)
     assert fresh["current_offer"]["id"] == room["current_offer"]["id"]
     assert fresh["state"] == "awaiting_approval" and fresh["human_guidance"] == []

@@ -17,6 +17,11 @@ Every case creates a unique PostgreSQL schema and drops only that schema. Image 
 
 Coverage includes buyer/seller role separation, workspace ownership, agent scope escalation, revocation, browser-only approval, CSRF/origin checks, private-context and competitor isolation, policy floors and intersections, matching exclusion reasons, exact-offer agreement, both approvals, stock allocation, concurrent competing approvals, idempotency and conflicting retries, expiring/reclaimed leases, offer expiry, controlled retries, image bytes/checksums/authorization, input injection and chunked body limits. Demo-reset guards are exercised only in the disposable test schemas.
 
+Conversation tests exercise alternating messages, replies and product evidence,
+own-offer revisions, discussion budgets, owner-only brief changes, private human
+questions, requirement evaluation and unresolved hard needs. Private material
+must remain isolated in context, errors, public activity and approval evidence.
+
 `alembic check` checks the migrated schema against model metadata. Regenerate the checked-in API contract with `uv run python scripts/export_openapi.py` after changing routes or schemas; commit the changed JSON with the implementation.
 
 ## CLI tests
@@ -35,6 +40,12 @@ These tests cover JSON invocation, actionable error exits, credential-file permi
 ## Dashboard
 
 From `frontend`, run `npm ci`, `npm run typecheck`, `npm run format:check`, and `npm run build`. The browser workflow is documented in the [frontend README](https://github.com/iivko/crossroads-frontend/blob/main/README.md). It consumes one prepared demo negotiation and allocates stock, so it is intentionally separate from isolated backend tests.
+
+`npm run test:unit` and `npm run test:ui` use unit fixtures and mocked API
+responses. They are safe to run alongside the live demo and cover guidance and
+conversation presentation, private workspace isolation, requirements and mobile
+layout. The real end-to-end approval workflow above must use disposable data or
+an explicitly selected demo negotiation.
 
 The browser workflow covers login, gallery selection, separate buyer/seller navigation, exact-offer acknowledgement, both human approvals, persisted order evidence and mobile layout. It uses real browser cookies/CSRF through the Next.js proxy. Screenshots are inspected at desktop and 390px widths.
 

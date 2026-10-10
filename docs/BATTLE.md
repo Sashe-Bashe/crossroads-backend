@@ -1,7 +1,7 @@
 # A live negotiation between independent agents
 
 Crossroads supplies accounts, role permissions, product evidence, private rules,
-structured offers and human approval. Each business supplies its own LLM and
+shared dialogue, business needs, structured offers and human approval. Each business supplies its own LLM and
 tools. Neither the API nor the default CLI battle monitor calls a model.
 
 The optional Deep Agents/LangGraph adapter runs on the participant/operator's
@@ -76,7 +76,17 @@ market battle watch --run-dir /absolute/backend/work/battle/run --role buyer
 market battle watch --run-dir /absolute/backend/work/battle/run --role seller
 ```
 
-They display actual API offers and state changes, not private model reasoning.
+They display actual submitted agent messages, offer explanations, exact terms
+and state changes. Private briefs, human questions, guidance and model notes are
+excluded from the observer's projection. Free-form text is rendered with terminal
+controls removed. Agents remain responsible for keeping private information out
+of their outgoing messages.
+
+For a needs-based exchange, owners first configure each room's brief using the
+CLI. Give each agent explicit shareable needs, private priorities and structured
+requirements. Agents can ask questions before quoting and revise their own quote
+after discussion. See the [conversation guide](CONVERSATION.md); the marketplace
+does not generate fictional dialogue to fill the viewer.
 The observer does not generate offers. Keep terminal windows open at completion
 if capturing them in OBS. Follow [OBS_BATTLE.md](OBS_BATTLE.md) to create the live
 two-window preview through OBS MCP. Streaming and recording are separate actions

@@ -14,8 +14,11 @@ Authorization is enforced in FastAPI for every operation. CLI flags, prompt inst
 | Read private purchase requirements and budget | Own buyer requests | No | Buyer workspace only |
 | View supplier's price floors/deposit rules | No | Own workspace/product | Own seller workspace |
 | Read negotiation | Participating buyer only | Participating seller only | Participating workspace only |
-| Propose first quote/revise invalid offer | Only on own turn with pending human guidance | Participating seller's turn | Same role rules |
+| Propose first quote/revise invalid offer | Own turn in an owner-authorized run | Participating seller's turn | Same role rules |
 | Counter or accept terms | Own turn only | Own turn only | Same role rules |
+| Send public dialogue or revise own quote | Own turn with negotiations:act | Own turn with negotiations:act | Same role rules |
+| Read private business brief and human questions | Own workspace only | Own workspace only | Own workspace only |
+| Edit brief, hard requirements or waivers | No | No | Owner user/admin membership; browser or CLI |
 | Edit negotiation policies | No | No | `policies:write` and admin membership |
 | Issue/revoke agent credentials | No | No | `credentials:manage` and admin membership |
 | Retry through `/negotiations/{room_id}/retry` | No | No | Buyer user credential only |
@@ -53,7 +56,13 @@ The browser approval and private human guidance paths require an approver member
 
 Seller views reconstruct the public request from reviewed fields. The buyer's raw title/description, budget, deposit cap and preference are omitted. Buyer views never include seller rules. Supplier rooms are isolated from each other. Public offer DTOs omit stored policy snapshots; counterparties cannot fetch policy data by guessing product IDs.
 
-Public negotiation messages are generated from a limited action vocabulary. Agents cannot attach arbitrary free-form reasoning to a negotiation action. Clarifications use a topic and refer to confirmed fields; unresolved facts should escalate to human review rather than become invented terms. Product descriptions and image text remain untrusted data.
+Public dialogue uses the typed `message` action; structured offers may carry a public explanation. Messages retain participant authorization, turn claims, exact versions, idempotency and bounded per-run allowances. They cannot alter terms, mark requirements met, waive needs or produce approval. Reply references stay inside the room and image references must be ready images of that room's product. Product descriptions, image text and counterparty prose are untrusted data. Free text is not executed or treated as tool authority.
+
+Owners maintain versioned per-room business briefs using browser or user CLI credentials and an admin membership. Agents can read their own brief but cannot edit it. Private goals, requirements and waiver notes stay in the owning workspace. Only expressly shareable needs/requirements appear in the counterparty's context. The API derives supported requirement status and evidence from confirmed structured fields. Hard unmet or unverified requirements on either side block acceptance and final approval; preferences do not. Unsupported hard needs require explicit owner revision or a documented waiver. Waivers never relax existing commercial rules. Unsupported promises in prose never create new contract fields.
+
+Each structured offer freezes both briefs internally. Offer and order responses project only the requesting workspace's private review snapshot and the explicitly shared snapshots. Subsequent edits cannot rewrite these historical snapshots. Public order evidence never stores private briefs. Private `human_question` text is stored separately from shared actions/events and is visible only to the asking workspace; explicit guidance answers its pending questions. Brief edits alone do not answer questions.
+
+Role isolation prevents the platform from automatically leaking private fields. It cannot guarantee semantic secrecy when an independently operated agent can write unrestricted public prose, nor certify that every claim in that prose is true. Runtime prompts and tools must keep private material out of messages. Human reviewers approve the exact structured offer, with unmet needs and unsupported commitments clearly distinguished from contractual terms.
 
 Private human guidance is stored separately from public actions, offers, orders and audit metadata. Room/context responses return only the selected workspace's `human_guidance` history. The counterparty sees a generic `human_requested_negotiation` event containing the requesting role and run, without the instruction or guidance ID. Inbox entries expose only the selected workspace's pending ID. A multi-workspace user cannot replay an idempotent guidance response across workspace selections.
 

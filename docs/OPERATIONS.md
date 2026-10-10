@@ -29,7 +29,7 @@ Compose optional variables: `POSTGRES_PASSWORD`, `POSTGRES_PORT`, `API_PORT`, `F
 
 Use separate buyer/seller CLI profiles and scoped agent tokens. Revoke compromised tokens with `market credentials revoke ID`; the next API request rechecks revocation and workspace membership. User CLI tokens expire after 24 hours; browser sessions after 12 hours; agents after 1–90 days. Use the operator `add-user` command to create a role-bound workspace. See [authorization](AUTHORIZATION.md) for the full matrix.
 
-Passwords, bearer tokens, session cookies and private policies are never written to activity events. Uvicorn access logs contain HTTP paths/statuses; keep secrets out of URLs. CLI credentials are stored in a local file with mode 0600, or passed by environment without persistence.
+The server does not copy passwords, bearer tokens, session cookies, private policies, business briefs or human questions into activity events. Agent-authored messages are shared text; external runtimes must also keep private information out of what they submit. Uvicorn access logs contain HTTP paths/statuses; keep secrets out of URLs. CLI credentials are stored in a local file with mode 0600, or passed by environment without persistence.
 
 ## Image jobs and recovery
 
@@ -46,6 +46,9 @@ The worker also expires offers/rooms, clears outdated approvals and removes aban
 - A stock, gallery, listing or policy change invalidates old approvals. The seller must propose a fresh offer, both agents agree, then both humans review again.
 - After decline, expiry or human-review escalation, a buyer user can run `negotiations retry ROOM`. Agent tokens cannot reset their own round limit. Earlier offers/actions remain visible.
 - Every agreement still requires both human approvals of the same offer. Approval of an already-confirmed identical offer returns the existing order without allocating more stock.
+- Conversation has its own bounded message allowance. Offer explanations consume that allowance too; when it is exhausted, a permitted structured offer can omit an explanation. Agents cannot reset either budget themselves.
+- Owner brief edits and dashboard **Negotiate more** invalidate active claims and earlier approval. Reload context after either change. Open hard requirements block agreement; an explicit owner waiver is recorded and cannot override commercial policies.
+- Private `human_question` messages pause for review. The owner answers through dashboard guidance, keeping the reply private, and uses the owner CLI separately for required brief or policy changes. An external runtime must be connected or restarted to act on the answer.
 
 ## Demo reset
 

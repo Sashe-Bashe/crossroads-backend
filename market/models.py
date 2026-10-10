@@ -130,6 +130,7 @@ class Offer(Base):
     terms = Column(JSON, nullable=False)
     product_snapshot = Column(JSON, nullable=False)
     policy_versions = Column(JSON, nullable=False)
+    brief_snapshot = Column(JSON, default=dict, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), default=now, nullable=False)
     __table_args__ = (UniqueConstraint("room_id", "version"),)
@@ -158,6 +159,31 @@ class HumanGuidance(Base):
             postgresql_where=(status == "pending"),
         ),
     )
+
+
+class BusinessBrief(Base):
+    __tablename__ = "business_briefs"
+    id = Column(String, primary_key=True, default=uid)
+    room_id = Column(String, ForeignKey("negotiations.id"), nullable=False, index=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    version = Column(Integer, nullable=False)
+    data = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=now, nullable=False)
+    __table_args__ = (UniqueConstraint("room_id", "workspace_id", "version"),)
+
+
+class HumanQuestion(Base):
+    __tablename__ = "human_questions"
+    id = Column(String, primary_key=True, default=uid)
+    room_id = Column(String, ForeignKey("negotiations.id"), nullable=False, index=True)
+    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    question = Column(String(2000), nullable=False)
+    status = Column(String, default="pending", nullable=False)
+    created_at = Column(DateTime(timezone=True), default=now, nullable=False)
+    answered_at = Column(DateTime(timezone=True))
+    answer_guidance_id = Column(String, ForeignKey("human_guidance.id"))
+    __table_args__ = (CheckConstraint("status IN ('pending','answered')"),)
 
 
 class Action(Base):
